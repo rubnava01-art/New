@@ -54,7 +54,7 @@ export function matchTemplate(prompt: string): Template {
  * The placeholder is the only substitution the demo engine performs.
  */
 export function instantiate(template: Template, businessName: string): TemplateFile[] {
-  const safe = businessName.trim().slice(0, 60) || 'My Business';
+  const safe = businessName.trim().slice(0, 60) || 'Mi negocio';
   return template.files.map((f) => ({
     path: f.path,
     content: f.content.split('{{NAME}}').join(safe),
@@ -62,13 +62,14 @@ export function instantiate(template: Template, businessName: string): TemplateF
 }
 
 /**
- * Naive business-name extraction: quoted text, or "for X" / "called X".
- * Falls back to "My Business" — never invents a fancier name.
+ * Naive business-name extraction: quoted text, or "for X" / "called X"
+ * (also Spanish "para X" / "llamado X"). Falls back to "Mi negocio" —
+ * never invents a fancier name.
  */
 export function extractBusinessName(prompt: string): string {
   const quoted = prompt.match(/["“]([^"”]{2,60})["”]/);
   if (quoted) return quoted[1].trim();
-  const called = prompt.match(/\b(?:called|named|for)\s+([A-Z][\w&'’.-]*(?:\s+[A-Z\d][\w&'’.-]*){0,3})/);
+  const called = prompt.match(/\b(?:called|named|for|llamado|llamada|para)\s+([A-ZÁÉÍÓÚÑ][\w&'’.-]*(?:\s+[A-ZÁÉÍÓÚÑ\d][\w&'’.-]*){0,3})/);
   if (called) return called[1].trim();
-  return 'My Business';
+  return 'Mi negocio';
 }

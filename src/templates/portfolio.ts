@@ -349,7 +349,7 @@ export const portfolio: Template = {
   id: 'portfolio',
   name: 'Portfolio',
   blurb: 'Designer portfolio with filterable work grid, lightbox and contact.',
-  keywords: ['portfolio', 'photographer', 'designer', 'artist', 'freelancer', 'creative', 'gallery'],
+  keywords: ['portfolio', 'photographer', 'designer', 'artist', 'freelancer', 'creative', 'gallery', 'portafolio', 'fotografo', 'fotógrafo', 'diseñador', 'disenador', 'artista', 'galeria', 'galería'],
   files: [
     { path: 'index.html', content: indexHtml },
     { path: 'styles.css', content: stylesCss },

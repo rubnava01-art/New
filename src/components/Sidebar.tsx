@@ -13,7 +13,7 @@ interface SidebarProps {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('es', { month: 'short', day: 'numeric' });
 }
 
 export default function Sidebar({
@@ -59,13 +59,13 @@ export default function Sidebar({
           onClick={onNew}
           className="w-full rounded-xl bg-[#7c5cff] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#9a82ff]"
         >
-          + New project
+          + Nuevo proyecto
         </button>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search projects…"
-          className="mt-3 w-full rounded-xl border border-[#2a2d36] bg-[#1d1f26] px-3 py-2 text-sm text-white placeholder-[#5b606c] focus:border-[#7c5cff] focus:outline-none"
+          placeholder="Buscar proyectos…"
+          className="mt-3 w-full rounded-xl border border-[#2a2d36] bg-[#1d1f26] px-3 py-2 text-base text-white placeholder-[#5b606c] focus:border-[#7c5cff] focus:outline-none"
         />
       </div>
 
@@ -73,8 +73,8 @@ export default function Sidebar({
         {filtered.length === 0 && (
           <p className="px-3 py-6 text-center text-sm text-[#5b606c]">
             {projects.length === 0
-              ? 'No projects yet. Create your first one above.'
-              : 'No projects match your search.'}
+              ? 'Aún no hay proyectos. Crea el primero arriba.'
+              : 'Ningún proyecto coincide con tu búsqueda.'}
           </p>
         )}
         {filtered.map((p) => (
@@ -94,7 +94,7 @@ export default function Sidebar({
                   if (e.key === 'Enter') commitRename(p.id);
                   if (e.key === 'Escape') setRenamingId(null);
                 }}
-                className="w-full rounded-lg border border-[#7c5cff] bg-[#101114] px-2 py-1 text-sm text-white focus:outline-none"
+                className="w-full rounded-lg border border-[#7c5cff] bg-[#101114] px-2 py-1 text-base text-white focus:outline-none"
               />
             ) : (
               <button
@@ -105,13 +105,13 @@ export default function Sidebar({
                   {p.name}
                 </span>
                 <span className="block text-xs text-[#5b606c]">
-                  {p.fileCount} files · edited {formatDate(p.updatedAt)}
+                  {p.fileCount} archivos · editado {formatDate(p.updatedAt)}
                 </span>
               </button>
             )}
             {renamingId !== p.id && (
               <button
-                aria-label="Project actions"
+                aria-label="Acciones del proyecto"
                 onClick={() => setMenuFor(menuFor === p.id ? null : p.id)}
                 className="absolute right-2 top-2.5 rounded-lg px-2 py-0.5 text-[#5b606c] hover:bg-[#2a2d36] hover:text-white"
               >
@@ -119,18 +119,18 @@ export default function Sidebar({
               </button>
             )}
             {menuFor === p.id && renamingId !== p.id && (
-              <div className="absolute right-2 top-10 z-20 w-40 overflow-hidden rounded-xl border border-[#2a2d36] bg-[#1d1f26] shadow-xl">
+              <div className="absolute right-2 top-10 z-20 w-44 overflow-hidden rounded-xl border border-[#2a2d36] bg-[#1d1f26] shadow-xl">
                 {[
                   {
-                    label: 'Rename',
+                    label: 'Renombrar',
                     fn: () => {
                       setRenameDraft(p.name);
                       setRenamingId(p.id);
                       setMenuFor(null);
                     },
                   },
-                  { label: 'Duplicate', fn: () => { onDuplicate(p.id); setMenuFor(null); } },
-                  { label: 'Delete', fn: () => { onDelete(p.id); setMenuFor(null); }, danger: true },
+                  { label: 'Duplicar', fn: () => { onDuplicate(p.id); setMenuFor(null); } },
+                  { label: 'Eliminar', fn: () => { onDelete(p.id); setMenuFor(null); }, danger: true },
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -153,7 +153,7 @@ export default function Sidebar({
           onClick={() => setHelpOpen(true)}
           className="w-full rounded-xl border border-[#2a2d36] bg-[#1d1f26] px-4 py-2 text-sm font-semibold text-[#a7abb6] hover:text-white"
         >
-          Help &amp; demo info
+          Ayuda e info del demo
         </button>
       </div>
 
@@ -168,28 +168,32 @@ export default function Sidebar({
             role="dialog"
             aria-modal="true"
           >
-            <h3 className="mb-3 text-lg font-bold text-white">NEST Forge AI — demo mode</h3>
+            <h3 className="mb-3 text-lg font-bold text-white">NEST Forge AI — modo demo</h3>
             <div className="space-y-3 text-sm text-[#a7abb6]">
               <p>
-                Describe a website in the chat (e.g. “Create a marketing agency site for Acme”)
-                and the demo engine builds it from built-in templates. Ask for edits like
-                “change the hero title to …” or “add a pricing section”.
+                Describe un sitio web en el chat (p. ej. “Crea un sitio de agencia de
+                marketing para Acme”) y el motor demo lo construye con plantillas
+                integradas. Pide ediciones como “cambia el título principal a …” o
+                “agrega una sección de precios”.
               </p>
               <p>
-                Every change is a validated file operation, recorded in version history
-                (Versions tab) and previewable live. Export any project as a ZIP.
+                Cada cambio es una operación de archivo validada, queda registrada en el
+                historial de versiones (pestaña Versiones) y se puede ver en vivo.
+                Exporta cualquier proyecto como ZIP.
               </p>
               <p>
-                <strong className="text-white">Limits of this MVP:</strong> generation is
-                template-based, not a real AI model. Real model integration (Phase 3) needs
-                a secure server endpoint for API keys and is not included.
+                <strong className="text-white">Límites de este MVP:</strong> la generación
+                está basada en plantillas, no es un modelo de IA real. La integración
+                con un modelo real (Fase 3) necesita un servidor seguro para las API
+                keys y no está incluida. Tus proyectos se guardan solo en este
+                navegador.
               </p>
             </div>
             <button
               onClick={() => setHelpOpen(false)}
               className="mt-5 w-full rounded-xl bg-[#7c5cff] px-4 py-2 text-sm font-bold text-white hover:bg-[#9a82ff]"
             >
-              Got it
+              Entendido
             </button>
           </div>
         </div>

@@ -9,10 +9,10 @@ interface ChatPanelProps {
 }
 
 const SUGGESTIONS = [
-  'Create a professional website for a digital marketing agency with services, pricing, testimonials and a contact form',
-  'Build a portfolio site for a photographer named Elena Ruiz',
-  'Create a restaurant website for "Casa Verde" with menu and reservations',
-  'Make a landing page for a SaaS startup called Flowbase',
+  'Crea un sitio profesional para una agencia de marketing digital con servicios, precios, testimonios y formulario de contacto',
+  'Haz un portafolio para una fotógrafa llamada Elena Ruiz',
+  'Crea el sitio de un restaurante "Casa Verde" con menú y reservaciones',
+  'Haz una landing page para una startup SaaS llamada Flowbase',
 ];
 
 function MessageBubble({ message }: { message: ChatMessage }) {
@@ -30,7 +30,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {!isUser && message.kind !== 'info' && (
           <span className="mb-1 inline-block rounded-md bg-[#2a2d36] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#9a82ff]">
-            {message.kind === 'plan' ? 'Plan' : message.kind === 'summary' ? 'Summary' : 'Demo'}
+            {message.kind === 'plan' ? 'Plan' : message.kind === 'summary' ? 'Resumen' : 'Demo'}
           </span>
         )}
         <p className="whitespace-pre-wrap">{message.content}</p>
@@ -42,6 +42,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 export default function ChatPanel({ projectName, messages, working, onSend }: ChatPanelProps) {
   const [draft, setDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Show starter suggestions until the user sends their first message
+  // (a fresh project always seeds a welcome message, so messages.length is never 0).
+  const showSuggestions = !working && !messages.some((m) => m.role === 'user');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -59,7 +62,7 @@ export default function ChatPanel({ projectName, messages, working, onSend }: Ch
       <div className="flex items-center justify-between border-b border-[#2a2d36] px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-bold text-white">{projectName}</h2>
-          <p className="text-xs text-[#5b606c]">AI Assistant</p>
+          <p className="text-xs text-[#5b606c]">Asistente IA</p>
         </div>
         <span className="shrink-0 rounded-lg border border-[#7c5cff]/50 bg-[#7c5cff]/15 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-[#9a82ff]">
           Modo demo
@@ -67,11 +70,11 @@ export default function ChatPanel({ projectName, messages, working, onSend }: Ch
       </div>
 
       <div className="slim-scroll flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {messages.length === 0 && (
+        {showSuggestions && (
           <div className="py-6">
             <p className="mb-4 text-center text-sm text-[#a7abb6]">
-              Describe the website you want. The demo engine builds it from real templates —
-              no API key needed.
+              Describe el sitio web que quieres. El motor demo lo construye con plantillas
+              reales — sin API key.
             </p>
             <div className="space-y-2">
               {SUGGESTIONS.map((s) => (
@@ -94,7 +97,7 @@ export default function ChatPanel({ projectName, messages, working, onSend }: Ch
           <div className="flex justify-start">
             <div className="flex items-center gap-2 rounded-2xl border border-[#2a2d36] bg-[#1d1f26] px-4 py-3 text-sm text-[#a7abb6]">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#2a2d36] border-t-[#7c5cff]" />
-              Demo engine working — deterministic, no AI calls…
+              El motor demo está trabajando…
             </div>
           </div>
         )}
@@ -113,19 +116,20 @@ export default function ChatPanel({ projectName, messages, working, onSend }: Ch
               }
             }}
             rows={3}
-            placeholder="Describe your site or request a change… (Enter to send)"
-            className="slim-scroll flex-1 resize-none rounded-xl border border-[#2a2d36] bg-[#17181d] px-4 py-3 text-sm text-white placeholder-[#5b606c] focus:border-[#7c5cff] focus:outline-none"
+            enterKeyHint="send"
+            placeholder="Describe tu sitio o pide un cambio… (Enter para enviar)"
+            className="slim-scroll flex-1 resize-none rounded-xl border border-[#2a2d36] bg-[#17181d] px-4 py-3 text-base text-white placeholder-[#5b606c] focus:border-[#7c5cff] focus:outline-none"
           />
           <button
             onClick={submit}
             disabled={working || !draft.trim()}
             className="shrink-0 self-end rounded-xl bg-[#7c5cff] px-5 py-3 text-sm font-bold text-white hover:bg-[#9a82ff] disabled:opacity-40"
           >
-            Send
+            Enviar
           </button>
         </div>
         <p className="mt-2 text-[11px] text-[#5b606c]">
-          Demo engine: template-based generation with validated file operations.
+          Motor demo: generación con plantillas y operaciones de archivo validadas.
         </p>
       </div>
     </div>

@@ -36,7 +36,7 @@ export function validateOps(ops: FileOp[], existing: ProjectFile[]): ValidationR
   const errors: string[] = [];
 
   if (ops.length > MAX_OPS) {
-    errors.push(`Too many operations (${ops.length}); the limit is ${MAX_OPS}.`);
+    errors.push(`Demasiadas operaciones (${ops.length}); el límite es ${MAX_OPS}.`);
   }
 
   const existingPaths = new Set(existing.map((f) => f.path));
@@ -47,45 +47,45 @@ export function validateOps(ops: FileOp[], existing: ProjectFile[]): ValidationR
 
     // Path shape: flat file names only — no directories, no traversal.
     if (!PATH_RE.test(op.path) || op.path.includes('..')) {
-      errors.push(`${label}: rejected — path must be a plain file name (no folders, no "..").`);
+      errors.push(`${label}: rechazada — la ruta debe ser un nombre de archivo simple (sin carpetas ni "..").`);
       continue;
     }
     const ext = extensionOf(op.path);
     if (!ALLOWED_EXTENSIONS.has(ext)) {
       errors.push(
-        `${label}: rejected — extension "${ext || '(none)'}" is not allowed. ` +
-          `Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}.`,
+        `${label}: rechazada — extensión "${ext || '(ninguna)'}" no permitida. ` +
+          `Permitidas: ${[...ALLOWED_EXTENSIONS].join(', ')}.`,
       );
       continue;
     }
     if (op.path.length > 120) {
-      errors.push(`${label}: rejected — file name too long.`);
+      errors.push(`${label}: rechazada — nombre de archivo demasiado largo.`);
       continue;
     }
 
     if (op.kind === 'create_file') {
       if (existingPaths.has(op.path) || createdPaths.has(op.path)) {
-        errors.push(`${label}: rejected — file already exists (use update_file).`);
+        errors.push(`${label}: rechazada — el archivo ya existe (usa update_file).`);
         continue;
       }
       if (op.content.length > MAX_FILE_CHARS) {
-        errors.push(`${label}: rejected — file too large (${op.content.length} chars, limit ${MAX_FILE_CHARS}).`);
+        errors.push(`${label}: rechazada — archivo demasiado grande (${op.content.length} caracteres, límite ${MAX_FILE_CHARS}).`);
         continue;
       }
       createdPaths.add(op.path);
     } else if (op.kind === 'update_file') {
       if (!existingPaths.has(op.path) && !createdPaths.has(op.path)) {
-        errors.push(`${label}: rejected — file does not exist (use create_file).`);
+        errors.push(`${label}: rechazada — el archivo no existe (usa create_file).`);
         continue;
       }
       if (op.content.length > MAX_FILE_CHARS) {
-        errors.push(`${label}: rejected — file too large (${op.content.length} chars, limit ${MAX_FILE_CHARS}).`);
+        errors.push(`${label}: rechazada — archivo demasiado grande (${op.content.length} caracteres, límite ${MAX_FILE_CHARS}).`);
         continue;
       }
     } else {
       // delete_file
       if (!existingPaths.has(op.path) && !createdPaths.has(op.path)) {
-        errors.push(`${label}: rejected — file does not exist.`);
+        errors.push(`${label}: rechazada — el archivo no existe.`);
         continue;
       }
       createdPaths.delete(op.path);

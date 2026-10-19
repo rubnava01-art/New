@@ -383,7 +383,7 @@ export const marketingAgency: Template = {
   id: 'marketing-agency',
   name: 'Marketing Agency',
   blurb: 'Agency site with services, pricing, testimonials and contact form.',
-  keywords: ['agency', 'marketing', 'business', 'startup', 'company', 'brand', 'digital'],
+  keywords: ['agency', 'marketing', 'business', 'startup', 'company', 'brand', 'digital', 'agencia', 'mercadotecnia', 'negocio', 'empresa', 'marca'],
   files: [
     { path: 'index.html', content: indexHtml },
     { path: 'styles.css', content: stylesCss },

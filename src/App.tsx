@@ -37,7 +37,7 @@ function welcomeMessage(): ChatMessage {
     createdAt: nowIso(),
     kind: 'info',
     content:
-      'Welcome to NEST Forge AI (demo mode). Describe the website you want — for example "Create a restaurant website for Casa Verde" — and I will build it from real templates. Afterwards, ask for changes like "change the hero title to …".',
+      'Bienvenido a NEST Forge AI (modo demo). Describe el sitio web que quieres — por ejemplo "Crea el sitio de un restaurante llamado Casa Verde" — y lo construyo con plantillas reales. Después pide cambios como "cambia el título principal a …" o "agrega una sección de precios".',
   };
 }
 
@@ -57,12 +57,13 @@ export default function App() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [booted, setBooted] = useState(false);
 
   const refreshMetas = useCallback(async () => {
     try {
       setMetas(await storageRef.current.listProjects());
     } catch (err) {
-      setStorageError(err instanceof Error ? err.message : 'Storage error');
+      setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
     }
   }, []);
 
@@ -80,9 +81,10 @@ export default function App() {
           }
         }
       } catch (err) {
-        setStorageError(err instanceof Error ? err.message : 'Storage error');
+        setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
       } finally {
         readyRef.current = true;
+        setBooted(true);
       }
     })();
   }, []);
@@ -101,7 +103,7 @@ export default function App() {
             return next;
           });
         })
-        .catch((err) => setStorageError(err instanceof Error ? err.message : 'Save failed'));
+        .catch((err) => setStorageError(err instanceof Error ? err.message : 'No se pudo guardar'));
     }, 600);
     return () => window.clearTimeout(t);
   }, [project]);
@@ -115,7 +117,7 @@ export default function App() {
       setActivePath(full.files.some((f) => f.path === 'index.html') ? 'index.html' : (full.files[0]?.path ?? null));
       setCenterTab('chat');
     } catch (err) {
-      setStorageError(err instanceof Error ? err.message : 'Storage error');
+      setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
     }
   }, []);
 
@@ -123,7 +125,7 @@ export default function App() {
     const stamp = nowIso();
     const p: Project = {
       id: newId(),
-      name: 'Untitled project',
+      name: 'Proyecto sin título',
       createdAt: stamp,
       updatedAt: stamp,
       files: [],
@@ -167,7 +169,7 @@ export default function App() {
             createdAt: stamp,
             kind: 'error',
             content:
-              'The demo engine produced invalid operations, so nothing was changed:\n' +
+              'El motor demo produjo operaciones inválidas, así que no se cambió nada:\n' +
               report.errors.map((e) => `• ${e}`).join('\n'),
           };
           p = { ...p, messages: [...p.messages, errMsg], generationStatus: 'error', updatedAt: stamp };
@@ -205,8 +207,8 @@ export default function App() {
             content: result.summary + (result.warnings.length > 0 ? '\n\nNote: ' + result.warnings.join(' ') : ''),
           };
           let name = p.name;
-          if (isNew && name === 'Untitled project') {
-            name = `${extractBusinessName(clean)} site`.slice(0, 80);
+          if (isNew && name === 'Proyecto sin título') {
+            name = `Sitio de ${extractBusinessName(clean)}`.slice(0, 80);
           }
           p = {
             ...p,
@@ -220,6 +222,10 @@ export default function App() {
           const firstCreated = result.ops.find((o) => o.kind === 'create_file');
           if (firstCreated) setActivePath(firstCreated.path);
           setCenterTab('chat');
+          // On phones/tablets jump straight to the preview so the result is visible.
+          if (window.matchMedia('(max-width: 1023px)').matches) {
+            setMobileView('preview');
+          }
         }
       } catch (err) {
         const stamp = nowIso();
@@ -232,7 +238,7 @@ export default function App() {
               role: 'assistant',
               createdAt: stamp,
               kind: 'error',
-              content: `Something went wrong while running the demo engine: ${err instanceof Error ? err.message : 'unknown error'}. Nothing was changed.`,
+              content: `Algo salió mal al ejecutar el motor demo: ${err instanceof Error ? err.message : 'error desconocido'}. No se cambió nada.`,
             },
           ],
           generationStatus: 'error',
@@ -271,15 +277,15 @@ export default function App() {
 
   const createFile = useCallback(
     (name: string): string | null => {
-      if (!project) return 'No project selected.';
+      if (!project) return 'Ningún proyecto seleccionado.';
       if (!PATH_RE.test(name) || name.includes('..')) {
-        return 'Use a plain file name (letters, numbers, dashes, dots) — no folders.';
+        return 'Usa un nombre de archivo simple (letras, números, guiones, puntos) — sin carpetas.';
       }
       const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
       if (!ALLOWED_EXT.includes(ext)) {
-        return `Extension "${ext || '(none)'}" not allowed. Use: ${ALLOWED_EXT.join(', ')}.`;
+        return `Extensión "${ext || '(ninguna)'}" no permitida. Usa: ${ALLOWED_EXT.join(', ')}.`;
       }
-      if (project.files.some((f) => f.path === name)) return 'That file already exists.';
+      if (project.files.some((f) => f.path === name)) return 'Ese archivo ya existe.';
       const stamp = nowIso();
       setProject({
         ...project,
@@ -322,14 +328,14 @@ export default function App() {
         versionNumber: project.versions.length + 1,
         files: project.files.map((f) => ({ ...f })),
         createdAt: stamp,
-        changeSummary: `Snapshot before restoring v${v.versionNumber}`,
+        changeSummary: `Copia de seguridad antes de restaurar la v${v.versionNumber}`,
       };
       const msg: ChatMessage = {
         id: newId(),
         role: 'assistant',
         createdAt: stamp,
         kind: 'summary',
-        content: `Restored version v${v.versionNumber} ("${v.changeSummary}"). The pre-restore state was kept as v${snapshot.versionNumber}.`,
+        content: `Restauré la versión v${v.versionNumber} ("${v.changeSummary}"). El estado anterior quedó guardado como v${snapshot.versionNumber}.`,
       };
       setProject({
         ...project,
@@ -406,7 +412,7 @@ export default function App() {
       const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
       downloadBlob(blob, `${slug}.zip`);
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Export failed');
+      setExportError(err instanceof Error ? err.message : 'Falló la exportación');
     } finally {
       setExporting(false);
     }
@@ -421,21 +427,30 @@ export default function App() {
 
   const centerTabs: Array<{ id: CenterTab; label: string }> = [
     { id: 'chat', label: 'Chat' },
-    { id: 'files', label: `Files${dirtyPaths.length > 0 ? ` (${dirtyPaths.length})` : ''}` },
-    { id: 'versions', label: `Versions${project ? ` (${project.versions.length})` : ''}` },
+    { id: 'files', label: `Archivos${dirtyPaths.length > 0 ? ` (${dirtyPaths.length})` : ''}` },
+    { id: 'versions', label: `Versiones${project ? ` (${project.versions.length})` : ''}` },
   ];
 
   const mobileTabs: Array<{ id: MobileView; label: string }> = [
-    { id: 'projects', label: 'Projects' },
+    { id: 'projects', label: 'Proyectos' },
     { id: 'chat', label: 'Chat' },
-    { id: 'code', label: 'Code' },
-    { id: 'preview', label: 'Preview' },
+    { id: 'code', label: 'Código' },
+    { id: 'preview', label: 'Vista previa' },
   ];
 
+  if (!booted) {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-[#101114] text-white">
+        <span className="inline-block h-12 w-12 animate-pulse rounded-2xl bg-gradient-to-br from-[#7c5cff] to-[#9a82ff]" />
+        <p className="text-sm font-semibold text-[#a7abb6]">Cargando NEST Forge AI…</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full flex-col bg-[#101114] text-white">
+    <div className="flex h-dvh flex-col bg-[#101114] text-white">
       {/* Mobile top bar */}
-      <div className="border-b border-[#2a2d36] md:hidden">
+      <div className="border-b border-[#2a2d36] lg:hidden">
         <div className="flex items-center gap-2 px-4 py-2.5">
           <span className="inline-block h-6 w-6 rounded-lg bg-gradient-to-br from-[#7c5cff] to-[#9a82ff]" />
           <span className="font-extrabold tracking-tight">NEST Forge AI</span>
@@ -447,7 +462,7 @@ export default function App() {
             disabled={!project || exporting}
             className="ml-auto rounded-lg border border-[#2a2d36] bg-[#1d1f26] px-3 py-1.5 text-xs font-semibold text-[#a7abb6] disabled:opacity-40"
           >
-            {exporting ? 'Exporting…' : 'Export ZIP'}
+            {exporting ? 'Exportando…' : 'Exportar ZIP'}
           </button>
         </div>
         <nav className="flex px-2 pb-2">
@@ -467,21 +482,21 @@ export default function App() {
 
       {storageError && (
         <div className="border-b border-red-900 bg-red-950/60 px-4 py-2 text-xs text-red-200">
-          Storage error: {storageError} — changes may not persist.
-          <button onClick={() => setStorageError(null)} className="ml-2 underline">Dismiss</button>
+          Error de almacenamiento: {storageError} — es posible que los cambios no se guarden.
+          <button onClick={() => setStorageError(null)} className="ml-2 underline">Descartar</button>
         </div>
       )}
       {exportError && (
         <div className="border-b border-red-900 bg-red-950/60 px-4 py-2 text-xs text-red-200">
-          Export failed: {exportError}
-          <button onClick={() => setExportError(null)} className="ml-2 underline">Dismiss</button>
+          Falló la exportación: {exportError}
+          <button onClick={() => setExportError(null)} className="ml-2 underline">Descartar</button>
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
         {/* Left: projects */}
         <div
-          className={`${mobileView === 'projects' ? 'flex' : 'hidden'} w-full shrink-0 border-r border-[#2a2d36] md:flex md:w-72`}
+          className={`${mobileView === 'projects' ? 'flex' : 'hidden'} w-full shrink-0 border-r border-[#2a2d36] lg:flex lg:w-72`}
         >
           <Sidebar
             projects={metas}
@@ -496,7 +511,7 @@ export default function App() {
 
         {/* Center: chat / files / versions */}
         <div
-          className={`${mobileView === 'chat' || mobileView === 'code' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col border-r border-[#2a2d36] md:flex`}
+          className={`${mobileView === 'chat' || mobileView === 'code' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col border-r border-[#2a2d36] lg:flex`}
         >
           <div className="flex items-center gap-1 border-b border-[#2a2d36] px-3 py-2">
             {centerTabs.map((t) => (
@@ -515,9 +530,9 @@ export default function App() {
             <button
               onClick={handleExport}
               disabled={!project || exporting}
-              className="ml-auto hidden rounded-lg border border-[#2a2d36] bg-[#1d1f26] px-3 py-1.5 text-xs font-semibold text-[#a7abb6] hover:text-white disabled:opacity-40 md:block"
+              className="ml-auto hidden rounded-lg border border-[#2a2d36] bg-[#1d1f26] px-3 py-1.5 text-xs font-semibold text-[#a7abb6] hover:text-white disabled:opacity-40 lg:block"
             >
-              {exporting ? 'Exporting…' : '⤓ Export ZIP'}
+              {exporting ? 'Exportando…' : '⤓ Exportar ZIP'}
             </button>
           </div>
 
@@ -536,8 +551,8 @@ export default function App() {
             )}
             {(mobileView === 'code' ? 'files' : centerTab) === 'files' && (
               project ? (
-                <div className="flex h-full flex-col md:flex-row">
-                  <div className="h-44 shrink-0 border-b border-[#2a2d36] md:h-auto md:w-60 md:border-b-0 md:border-r">
+                <div className="flex h-full flex-col lg:flex-row">
+                  <div className="h-44 shrink-0 border-b border-[#2a2d36] lg:h-auto lg:w-60 lg:border-b-0 lg:border-r">
                     <FileExplorer
                       files={project.files}
                       activePath={activePath}
@@ -558,7 +573,7 @@ export default function App() {
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-[#5b606c]">
-                        Select a file to edit it. Changes are marked until you save.
+                        Selecciona un archivo para editarlo. Los cambios se marcan hasta que guardes.
                       </div>
                     )}
                   </div>
@@ -579,12 +594,12 @@ export default function App() {
 
         {/* Right: preview */}
         <div
-          className={`${mobileView === 'preview' ? 'flex' : 'hidden'} w-full shrink-0 flex-col md:flex md:w-[44%]`}
+          className={`${mobileView === 'preview' ? 'flex' : 'hidden'} w-full shrink-0 flex-col lg:flex lg:w-[44%]`}
         >
           <PreviewPanel
             html={previewHtml}
             buildOk={hasIndex}
-            buildNote={hasIndex ? 'index.html found and assembled' : 'Add an index.html to enable the preview'}
+            buildNote={hasIndex ? 'index.html encontrado y ensamblado' : 'Agrega un index.html para activar la vista previa'}
             fileCount={project?.files.length ?? 0}
           />
         </div>
@@ -592,9 +607,9 @@ export default function App() {
 
       {pendingDeleteId && (
         <Modal
-          title="Delete project?"
-          message="This permanently deletes the project, its files, chat history and versions. This cannot be undone."
-          confirmLabel="Delete"
+          title="¿Eliminar proyecto?"
+          message="Esto elimina permanentemente el proyecto, sus archivos, el historial del chat y las versiones. No se puede deshacer."
+          confirmLabel="Eliminar"
           danger
           onConfirm={() => confirmDeleteProject(pendingDeleteId)}
           onCancel={() => setPendingDeleteId(null)}
@@ -608,16 +623,16 @@ function EmptyCenter({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center p-8 text-center">
       <span className="mb-4 inline-block h-12 w-12 rounded-2xl bg-gradient-to-br from-[#7c5cff] to-[#9a82ff]" />
-      <h2 className="mb-2 text-lg font-bold text-white">No project open</h2>
+      <h2 className="mb-2 text-lg font-bold text-white">Ningún proyecto abierto</h2>
       <p className="mb-5 max-w-sm text-sm text-[#a7abb6]">
-        Create a project, describe the website you want in the chat, and the demo engine
-        will build it from real templates.
+        Crea un proyecto, describe el sitio web que quieres en el chat y el motor demo
+        lo construirá con plantillas reales.
       </p>
       <button
         onClick={onNew}
         className="rounded-xl bg-[#7c5cff] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#9a82ff]"
       >
-        + New project
+        + Nuevo proyecto
       </button>
     </div>
   );

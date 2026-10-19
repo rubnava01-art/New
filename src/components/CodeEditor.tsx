@@ -12,14 +12,14 @@ export default function CodeEditor({ path, value, dirty, onChange, onSave }: Cod
       <div className="flex items-center justify-between border-b border-[#2a2d36] px-4 py-2.5">
         <span className="code-font flex items-center gap-2 truncate text-sm text-[#d5d8e0]">
           {path}
-          {dirty && <span className="h-2 w-2 rounded-full bg-amber-400" title="Unsaved changes" />}
+          {dirty && <span className="h-2 w-2 rounded-full bg-amber-400" title="Cambios sin guardar" />}
         </span>
         <button
           onClick={onSave}
           disabled={!dirty}
           className="rounded-lg bg-[#7c5cff] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#9a82ff] disabled:opacity-40"
         >
-          Save (Ctrl+S)
+          Guardar
         </button>
       </div>
       <textarea

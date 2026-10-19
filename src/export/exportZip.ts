@@ -25,31 +25,31 @@ function exportReadme(project: Project): string {
     .join('\n');
   return `# ${project.name}
 
-Generated with NEST Forge AI (demo mode) on ${new Date(project.updatedAt).toLocaleDateString()}.
+Generado con NEST Forge AI (modo demo) el ${new Date(project.updatedAt).toLocaleDateString()}.
 
-## Run it
+## C\u00f3mo verlo
 
-This is a static website — no build step needed:
+Es un sitio web est\u00e1tico \u2014 no necesita compilaci\u00f3n:
 
 \`\`\`bash
-# Option 1: open index.html directly in your browser
-# Option 2: serve it locally
+# Opci\u00f3n 1: abre index.html directamente en tu navegador
+# Opci\u00f3n 2: s\u00edrvelo localmente
 npx serve .
-# or
+# o
 python3 -m http.server 8000
 \`\`\`
 
-## Files
+## Archivos
 
 ${fileList}
 
-## Notes
+## Notas
 
-- Edit the files with any code editor; refresh the browser to see changes.
-- Forms in the demo templates confirm locally in the browser (no backend).
-  Connect your own backend or form service before collecting real submissions.
-- \`package.json\` is included for convenience (\`npm start\` serves the site
-  after \`npm install\`, which fetches the tiny \`serve\` package).
+- Edita los archivos con cualquier editor de c\u00f3digo; recarga el navegador para ver los cambios.
+- Los formularios de las plantillas demo confirman localmente en el navegador (sin backend).
+  Conecta tu propio backend o servicio de formularios antes de recibir env\u00edos reales.
+- \`package.json\` se incluye por conveniencia (\`npm start\` sirve el sitio
+  despu\u00e9s de \`npm install\`, que descarga el peque\u00f1o paquete \`serve\`).
 `;
 }
 
@@ -60,7 +60,7 @@ function exportPackageJson(project: Project): string {
         name: slugify(project.name),
         version: '1.0.0',
         private: true,
-        description: `${project.name} — generated with NEST Forge AI (demo mode)`,
+        description: `${project.name} — generado con NEST Forge AI (modo demo)`,
         scripts: {
           start: 'npx serve .',
         },
@@ -91,7 +91,7 @@ export async function exportProjectZip(project: Project): Promise<Blob> {
   for (const f of files) addFile(f.path, f.content);
 
   if (!seen.has('index.html')) {
-    throw new Error('Cannot export: the project has no index.html.');
+    throw new Error('No se puede exportar: el proyecto no tiene index.html.');
   }
 
   addFile('README.md', exportReadme(project));

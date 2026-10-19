@@ -12,7 +12,7 @@ export default function Modal({
   title,
   message,
   confirmLabel,
-  cancelLabel = 'Cancel',
+  cancelLabel = 'Cancelar',
   danger = false,
   onConfirm,
   onCancel,

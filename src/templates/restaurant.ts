@@ -321,7 +321,7 @@ export const restaurant: Template = {
   id: 'restaurant',
   name: 'Restaurant',
   blurb: 'Restaurant site with tabbed menu, hours and reservation form.',
-  keywords: ['restaurant', 'food', 'menu', 'cafe', 'tacos', 'pizza', 'dining', 'eat', 'bakery', 'bar'],
+  keywords: ['restaurant', 'food', 'menu', 'cafe', 'tacos', 'pizza', 'dining', 'eat', 'bakery', 'bar', 'restaurante', 'comida', 'menú', 'cafe', 'café', 'cena', 'panaderia', 'panadería'],
   files: [
     { path: 'index.html', content: indexHtml },
     { path: 'styles.css', content: stylesCss },

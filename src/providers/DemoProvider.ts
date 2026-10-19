@@ -17,17 +17,17 @@ import {
  */
 
 const SUPPORTED_MODS = [
-  '“change the hero title to …”',
-  '“add a pricing section”',
-  '“add a testimonials section”',
-  '“change the accent color to #7c5cff”',
-  '“rename the business to …”',
-  '“delete the file app.js”',
+  '“cambia el título principal a …”',
+  '“agrega una sección de precios”',
+  '“agrega una sección de testimonios”',
+  '“cambia el color a #7c5cff”',
+  '“cambia el nombre del negocio a …”',
+  '“elimina el archivo app.js”',
 ];
 
 function supportedList(): string {
   return (
-    'I did not understand that as a demo modification. In demo mode I can:\n' +
+    'No entendí eso como una modificación del demo. En modo demo puedo:\n' +
     SUPPORTED_MODS.map((s) => `• ${s}`).join('\n')
   );
 }
@@ -46,9 +46,9 @@ function escapeHtml(s: string): string {
 
 function insertBeforeAnchor(html: string, snippet: string): { html: string; where: string } {
   const anchors: Array<[RegExp, string]> = [
-    [/<footer[\s>]/i, 'before the footer'],
-    [/<\/main>/i, 'at the end of the main content'],
-    [/<\/body>/i, 'at the end of the page'],
+    [/<footer[\s>]/i, 'antes del pie de página'],
+    [/<\/main>/i, 'al final del contenido principal'],
+    [/<\/body>/i, 'al final de la página'],
   ];
   for (const [re, where] of anchors) {
     const m = html.match(re);
@@ -59,11 +59,11 @@ function insertBeforeAnchor(html: string, snippet: string): { html: string; wher
       };
     }
   }
-  return { html: html + '\n' + snippet, where: 'at the end of the page' };
+  return { html: html + '\n' + snippet, where: 'al final de la página' };
 }
 
 const SNIPPET_CSS = `
-/* Added by NEST Forge AI (demo engine) */
+/* Agregado por NEST Forge AI (motor demo) */
 .nf-section { padding: 56px 0; }
 .nf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 24px; }
 .nf-card {
@@ -82,12 +82,12 @@ function pricingSnippet(): string {
   return `
     <section class="nf-section" id="pricing">
       <div class="container">
-        <p class="eyebrow">Pricing</p>
-        <h2>Simple, honest pricing.</h2>
+        <p class="eyebrow">Precios</p>
+        <h2>Precios simples y honestos.</h2>
         <div class="nf-grid">
-          <article class="nf-card"><h3>Basic</h3><p class="nf-price">$29/mo</p><p>Everything you need to get started.</p></article>
-          <article class="nf-card"><h3>Pro</h3><p class="nf-price">$79/mo</p><p>For growing teams that need more power.</p></article>
-          <article class="nf-card"><h3>Enterprise</h3><p class="nf-price">Custom</p><p>Dedicated support and custom limits.</p></article>
+          <article class="nf-card"><h3>Básico</h3><p class="nf-price">$29/mes</p><p>Todo lo que necesitas para empezar.</p></article>
+          <article class="nf-card"><h3>Pro</h3><p class="nf-price">$79/mes</p><p>Para equipos en crecimiento que necesitan más potencia.</p></article>
+          <article class="nf-card"><h3>Empresarial</h3><p class="nf-price">Personalizado</p><p>Soporte dedicado y límites a medida.</p></article>
         </div>
       </div>
     </section>`;
@@ -97,12 +97,12 @@ function testimonialsSnippet(): string {
   return `
     <section class="nf-section" id="testimonials">
       <div class="container">
-        <p class="eyebrow">Testimonials</p>
-        <h2>Loved by customers.</h2>
+        <p class="eyebrow">Testimonios</p>
+        <h2>Lo que dicen nuestros clientes.</h2>
         <div class="nf-grid">
-          <article class="nf-card"><p class="nf-quote">"Exactly what we needed — up and running in a day."</p><p class="nf-who">— Alex M., Founder</p></article>
-          <article class="nf-card"><p class="nf-quote">"The support team is fantastic and the product just works."</p><p class="nf-who">— Priya S., COO</p></article>
-          <article class="nf-card"><p class="nf-quote">"We switched from a competitor and never looked back."</p><p class="nf-who">— Jordan L., Marketing Lead</p></article>
+          <article class="nf-card"><p class="nf-quote">"Justo lo que necesitábamos — funcionando en un día."</p><p class="nf-who">— Alex M., Fundador</p></article>
+          <article class="nf-card"><p class="nf-quote">"El equipo de soporte es fantástico y el producto simplemente funciona."</p><p class="nf-who">— Priya S., Directora de operaciones</p></article>
+          <article class="nf-card"><p class="nf-quote">"Cambiamos desde un competidor y no hemos mirado atrás."</p><p class="nf-who">— Jordan L., Líder de marketing</p></article>
         </div>
       </div>
     </section>`;
@@ -110,7 +110,7 @@ function testimonialsSnippet(): string {
 
 export class DemoProvider implements AIProvider {
   readonly id = 'demo';
-  readonly label = 'Demo Engine (no API key)';
+  readonly label = 'Motor demo (sin API key)';
   readonly isDemo = true;
 
   async generate(prompt: string): Promise<GenerationResult> {
@@ -127,19 +127,19 @@ export class DemoProvider implements AIProvider {
     return {
       plan: {
         steps: [
-          `Analyzed the request and matched the "${template.name}" template (deterministic keyword match).`,
-          `Personalized the template for "${name}".`,
-          `Generated ${files.length} files: ${files.map((f) => f.path).join(', ')}.`,
-          'Validated every file operation (paths, extensions, sizes).',
+          `Analicé tu pedido y elegí la plantilla "${template.name}" (coincidencia determinista por palabras clave).`,
+          `Personalicé la plantilla para "${name}".`,
+          `Generé ${files.length} archivos: ${files.map((f) => f.path).join(', ')}.`,
+          'Validé cada operación de archivo (rutas, extensiones, tamaños).',
         ],
         manifest: files.map((f) => f.path),
       },
       ops,
       summary:
-        `Created "${name}" from the ${template.name} template (${files.length} files). ` +
-        `DEMO output: template-based, not model-generated. Try ${SUPPORTED_MODS[0]} or ${SUPPORTED_MODS[1]}.`,
+        `Creé "${name}" con la plantilla ${template.name} (${files.length} archivos). ` +
+        `Salida DEMO: basada en plantillas, no generada por un modelo. Prueba ${SUPPORTED_MODS[0]} o ${SUPPORTED_MODS[1]}.`,
       warnings: [
-        'Demo mode: designs come from built-in templates. A real AI provider arrives in Phase 3.',
+        'Modo demo: los diseños vienen de plantillas integradas. Un proveedor de IA real llega en la Fase 3.',
       ],
     };
   }
@@ -147,14 +147,15 @@ export class DemoProvider implements AIProvider {
   async modify(prompt: string, files: ProjectFile[]): Promise<GenerationResult> {
     const text = prompt.trim();
 
-    // 1. Change hero title
-    let m = text.match(/change\s+(?:the\s+)?hero\s+(?:title|heading)\s+to\s+["“]?([^"”\n]+)["”]?/i);
+    // 1. Change hero title (EN + ES)
+    let m = text.match(/change\s+(?:the\s+)?hero\s+(?:title|heading)\s+to\s+["“]?([^"”\n]+)["”]?/i)
+      ?? text.match(/cambia\s+(?:el\s+)?(?:t[ií]tulo|encabezado)(?:\s+principal|\s+del\s+hero)?\s+a\s+["“]?([^"”\n]+)["”]?/i);
     if (m) {
       const title = m[1].trim().slice(0, 120);
       const html = findFile(files, 'index.html');
-      if (!html) return emptyResult('There is no index.html in this project, so I cannot change the hero title.');
+      if (!html) return emptyResult('No hay un index.html en este proyecto, así que no puedo cambiar el título principal.');
       if (!/<h1[\s>]/i.test(html.content)) {
-        return emptyResult('I could not find an <h1> hero title in index.html.');
+        return emptyResult('No encontré un título <h1> en index.html.');
       }
       const updated = html.content.replace(
         /(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i,
@@ -162,22 +163,23 @@ export class DemoProvider implements AIProvider {
       );
       return {
         plan: {
-          steps: ['Located the <h1> hero title in index.html.', 'Replaced its text (HTML-escaped).', 'Validated the operation.'],
+          steps: ['Localicé el título <h1> en index.html.', 'Reemplacé su texto (con escape HTML).', 'Validé la operación.'],
           manifest: ['index.html'],
         },
         ops: [{ kind: 'update_file', path: 'index.html', content: updated }],
-        summary: `Hero title changed to "${title}".`,
+        summary: `Título principal cambiado a "${title}".`,
         warnings: [],
       };
     }
 
-    // 2. Add a pricing section
-    if (/add\s+(?:a\s+)?pricing(\s+section)?/i.test(text)) {
+    // 2. Add a pricing section (EN + ES)
+    if (/add\s+(?:a\s+)?pricing(\s+section)?/i.test(text)
+      || /(?:agrega|añade)\s+(?:una\s+)?secci[óo]n\s+de\s+precios/i.test(text)) {
       const html = findFile(files, 'index.html');
       const css = findFile(files, 'styles.css');
-      if (!html || !css) return emptyResult('This project needs index.html and styles.css for me to add a section.');
+      if (!html || !css) return emptyResult('Este proyecto necesita index.html y styles.css para agregar una sección.');
       if (/id=["']pricing["']/i.test(html.content)) {
-        return emptyResult('This project already has a pricing section (id="pricing").');
+        return emptyResult('Este proyecto ya tiene una sección de precios (id="pricing").');
       }
       const { html: withSection, where } = insertBeforeAnchor(html.content, pricingSnippet());
       const ops: FileOp[] = [
@@ -186,22 +188,23 @@ export class DemoProvider implements AIProvider {
       ];
       return {
         plan: {
-          steps: ['Built a 3-tier pricing section from the demo snippet library.', `Inserted it ${where} in index.html.`, 'Appended the matching styles to styles.css.', 'Validated both operations.'],
+          steps: ['Construí una sección de precios de 3 niveles desde la librería demo.', `La inserté ${where} en index.html.`, 'Agregué los estilos correspondientes a styles.css.', 'Validé ambas operaciones.'],
           manifest: ['index.html', 'styles.css'],
         },
         ops,
-        summary: `Pricing section added ${where}. Edit the tiers and prices directly in the editor to make them yours.`,
+        summary: `Sección de precios agregada ${where}. Edita los planes y precios directamente en el editor para hacerlos tuyos.`,
         warnings: [],
       };
     }
 
-    // 3. Add a testimonials section
-    if (/add\s+(?:a\s+)?testimonials?(\s+section)?/i.test(text)) {
+    // 3. Add a testimonials section (EN + ES)
+    if (/add\s+(?:a\s+)?testimonials?(\s+section)?/i.test(text)
+      || /(?:agrega|añade)\s+(?:una\s+)?secci[óo]n\s+de\s+(?:testimonios|opiniones|rese[ñn]as)/i.test(text)) {
       const html = findFile(files, 'index.html');
       const css = findFile(files, 'styles.css');
-      if (!html || !css) return emptyResult('This project needs index.html and styles.css for me to add a section.');
+      if (!html || !css) return emptyResult('Este proyecto necesita index.html y styles.css para agregar una sección.');
       if (/id=["']testimonials["']/i.test(html.content)) {
-        return emptyResult('This project already has a testimonials section (id="testimonials").');
+        return emptyResult('Este proyecto ya tiene una sección de testimonios (id="testimonials").');
       }
       const { html: withSection, where } = insertBeforeAnchor(html.content, testimonialsSnippet());
       const ops: FileOp[] = [
@@ -210,46 +213,48 @@ export class DemoProvider implements AIProvider {
       ];
       return {
         plan: {
-          steps: ['Built a testimonials section from the demo snippet library.', `Inserted it ${where} in index.html.`, 'Appended the matching styles to styles.css.', 'Validated both operations.'],
+          steps: ['Construí una sección de testimonios desde la librería demo.', `La inserté ${where} en index.html.`, 'Agregué los estilos correspondientes a styles.css.', 'Validé ambas operaciones.'],
           manifest: ['index.html', 'styles.css'],
         },
         ops,
-        summary: `Testimonials section added ${where}. Replace the sample quotes with real ones in the editor.`,
+        summary: `Sección de testimonios agregada ${where}. Reemplaza las opiniones de ejemplo con reales en el editor.`,
         warnings: [],
       };
     }
 
-    // 4. Change accent color
-    m = text.match(/change\s+(?:the\s+)?(?:accent|primary|brand)\s+colou?r\s+to\s+(#[0-9a-f]{3,8}|[a-z]+)/i);
+    // 4. Change accent color (EN + ES)
+    m = text.match(/change\s+(?:the\s+)?(?:accent|primary|brand)\s+colou?r\s+to\s+(#[0-9a-f]{3,8}|[a-z]+)/i)
+      ?? text.match(/cambia\s+(?:el\s+)?color(?:\s+(?:principal|de\s+acento|de\s+la\s+marca))?\s+a\s+(#[0-9a-f]{3,8}|[a-záéíóúñ]+)/i);
     if (m) {
       const color = m[1].toLowerCase();
       const css = findFile(files, 'styles.css');
-      if (!css) return emptyResult('There is no styles.css in this project.');
+      if (!css) return emptyResult('No hay un styles.css en este proyecto.');
       if (!/--accent\s*:/.test(css.content)) {
-        return emptyResult('I could not find an --accent variable in styles.css.');
+        return emptyResult('No encontré la variable --accent en styles.css.');
       }
       const updated = css.content.replace(/--accent\s*:\s*[^;]+;/, `--accent: ${color};`);
       return {
         plan: {
-          steps: ['Located the --accent CSS variable in styles.css.', `Set it to ${color}.`, 'Validated the operation.'],
+          steps: ['Localicé la variable CSS --accent en styles.css.', `La cambié a ${color}.`, 'Validé la operación.'],
           manifest: ['styles.css'],
         },
         ops: [{ kind: 'update_file', path: 'styles.css', content: updated }],
-        summary: `Accent color changed to ${color}. (The softer --accent-soft highlight was left untouched.)`,
+        summary: `Color de acento cambiado a ${color}. (El tono suave --accent-soft quedó intacto.)`,
         warnings: [],
       };
     }
 
-    // 5. Rename the business
-    m = text.match(/(?:rename|change)\s+(?:the\s+)?(?:business|brand|company|site)(?:\s+name)?\s+to\s+["“]?([^"”\n]+)["”]?/i);
+    // 5. Rename the business (EN + ES)
+    m = text.match(/(?:rename|change)\s+(?:the\s+)?(?:business|brand|company|site)(?:\s+name)?\s+to\s+["“]?([^"”\n]+)["”]?/i)
+      ?? text.match(/(?:cambia|renombra)\s+el\s+nombre(?:\s+(?:del\s+negocio|de\s+la\s+empresa|de\s+la\s+marca|del\s+sitio))?\s+a\s+["“]?([^"”\n]+)["”]?/i);
     if (m) {
       const next = m[1].trim().slice(0, 60);
       const html = findFile(files, 'index.html');
-      if (!html) return emptyResult('There is no index.html in this project.');
+      if (!html) return emptyResult('No hay un index.html en este proyecto.');
       const titleMatch = html.content.match(/<title>\s*([^<—–\-|]+)/i);
       const current = titleMatch ? titleMatch[1].trim() : '';
       if (!current) {
-        return emptyResult('I could not detect the current business name from the <title> tag.');
+        return emptyResult('No pude detectar el nombre actual del negocio desde la etiqueta <title>.');
       }
       const ops: FileOp[] = [];
       for (const f of files) {
@@ -259,53 +264,55 @@ export class DemoProvider implements AIProvider {
         }
       }
       if (ops.length === 0) {
-        return emptyResult(`The name "${current}" does not appear in any HTML file.`);
+        return emptyResult(`El nombre "${current}" no aparece en ningún archivo HTML.`);
       }
       return {
         plan: {
-          steps: [`Detected the current name "${current}" from the page title.`, `Replaced it with "${next}" across ${ops.length} HTML file(s).`, 'Validated the operations.'],
+          steps: [`Detecté el nombre actual "${current}" desde el título de la página.`, `Lo reemplacé por "${next}" en ${ops.length} archivo(s) HTML.`, 'Validé las operaciones.'],
           manifest: ops.map((o) => o.path),
         },
         ops,
-        summary: `Business renamed from "${current}" to "${next}".`,
+        summary: `Negocio renombrado de "${current}" a "${next}".`,
         warnings: [],
       };
     }
 
-    // 6. Delete a file
-    m = text.match(/delete\s+(?:the\s+)?file\s+([A-Za-z0-9_.-]+)/i);
+    // 6. Delete a file (EN + ES)
+    m = text.match(/delete\s+(?:the\s+)?file\s+([A-Za-z0-9_.-]+)/i)
+      ?? text.match(/elimina\s+(?:el\s+)?archivo\s+([A-Za-z0-9_.-]+)/i);
     if (m) {
       const target = m[1];
       if (target.toLowerCase() === 'index.html') {
-        return emptyResult('I will not delete index.html — the live preview needs it. Delete it manually in the file explorer if you really mean it.');
+        return emptyResult('No voy a eliminar index.html — la vista previa en vivo lo necesita. Elimínalo manualmente en el explorador de archivos si de verdad lo quieres.');
       }
       const exists = findFile(files, target);
       if (!exists) {
-        return emptyResult(`There is no file named "${target}" in this project.`);
+        return emptyResult(`No hay ningún archivo llamado "${target}" en este proyecto.`);
       }
       return {
         plan: {
-          steps: [`Verified "${target}" exists.`, 'Queued a delete_file operation.', 'Validated the operation.'],
+          steps: [`Verifiqué que "${target}" existe.`, 'Preparé una operación delete_file.', 'Validé la operación.'],
           manifest: [target],
         },
         ops: [{ kind: 'delete_file', path: target }],
-        summary: `Deleted "${target}". Your previous version is still in version history if you need it back.`,
+        summary: `Eliminé "${target}". Tu versión anterior sigue en el historial por si la necesitas.`,
         warnings: target === 'styles.css' || target === 'app.js'
-          ? [`"${target}" is referenced by index.html — the preview may look broken until you fix the reference.`]
+          ? [`"${target}" está referenciado por index.html — la vista previa puede verse rota hasta que corrijas la referencia.`]
           : [],
       };
     }
 
-    // 7. Help
-    if (/^(help|what can you do|commands)/i.test(text)) {
+    // 7. Help (EN + ES)
+    if (/^(help|what can you do|commands)/i.test(text)
+      || /^(ayuda|qu[eé]\s+puedes\s+hacer|comandos)/i.test(text)) {
       return emptyResult(
-        'Demo mode works with built-in templates and predictable edits.\n' + supportedList(),
+        'El modo demo funciona con plantillas integradas y ediciones predecibles.\n' + supportedList(),
       );
     }
 
-    // 8. Dark mode is already the default
-    if (/dark\s*mode/i.test(text)) {
-      return emptyResult('All demo templates are already dark-first, so there is nothing to change. (A light theme is not part of the demo engine.)');
+    // 8. Dark mode is already the default (EN + ES)
+    if (/dark\s*mode/i.test(text) || /modo\s+oscuro/i.test(text)) {
+      return emptyResult('Todas las plantillas demo ya son oscuras por defecto, así que no hay nada que cambiar. (Un tema claro no es parte del motor demo.)');
     }
 
     return emptyResult(supportedList());

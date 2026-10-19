@@ -361,7 +361,7 @@ export const saasLanding: Template = {
   id: 'saas-landing',
   name: 'SaaS Landing',
   blurb: 'SaaS landing page with pricing toggle, FAQ accordion and CTA.',
-  keywords: ['saas', 'software', 'app', 'startup', 'platform', 'landing', 'tech', 'product'],
+  keywords: ['saas', 'software', 'app', 'startup', 'platform', 'landing', 'tech', 'product', 'aplicacion', 'aplicación', 'plataforma', 'tecnologia', 'tecnología', 'producto'],
   files: [
     { path: 'index.html', content: indexHtml },
     { path: 'styles.css', content: stylesCss },

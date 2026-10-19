@@ -22,15 +22,15 @@ export default function VersionsPanel({ versions, onRestore }: VersionsPanelProp
   return (
     <div className="flex h-full flex-col bg-[#101114]">
       <div className="border-b border-[#2a2d36] px-4 py-3">
-        <h2 className="text-sm font-bold text-white">Version history</h2>
+        <h2 className="text-sm font-bold text-white">Historial de versiones</h2>
         <p className="text-xs text-[#5b606c]">
-          A snapshot is saved before every AI change. Restoring creates a new version — nothing is lost.
+          Se guarda una copia antes de cada cambio. Restaurar crea una versión nueva — nada se pierde.
         </p>
       </div>
       <div className="slim-scroll flex-1 overflow-y-auto p-4">
         {sorted.length === 0 && (
           <p className="py-6 text-center text-sm text-[#5b606c]">
-            No versions yet. Generate or modify the project to create the first snapshot.
+            Aún no hay versiones. Genera o modifica el proyecto para crear la primera copia.
           </p>
         )}
         <ol className="space-y-3">
@@ -46,20 +46,20 @@ export default function VersionsPanel({ versions, onRestore }: VersionsPanelProp
                 <span className="text-xs text-[#5b606c]">{formatDateTime(v.createdAt)}</span>
               </div>
               <p className="mt-2 text-sm text-[#d5d8e0]">{v.changeSummary}</p>
-              <p className="mt-1 text-xs text-[#5b606c]">{v.files.length} files</p>
+              <p className="mt-1 text-xs text-[#5b606c]">{v.files.length} archivos</p>
               {confirmId === v.id ? (
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => { onRestore(v.id); setConfirmId(null); }}
                     className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-400"
                   >
-                    Confirm restore v{v.versionNumber}
+                    Confirmar restauración de la v{v.versionNumber}
                   </button>
                   <button
                     onClick={() => setConfirmId(null)}
                     className="rounded-lg border border-[#2a2d36] px-3 py-1.5 text-xs text-[#a7abb6]"
                   >
-                    Cancel
+                    Cancelar
                   </button>
                 </div>
               ) : (
@@ -67,7 +67,7 @@ export default function VersionsPanel({ versions, onRestore }: VersionsPanelProp
                   onClick={() => setConfirmId(v.id)}
                   className="mt-3 rounded-lg border border-[#2a2d36] bg-[#1d1f26] px-3 py-1.5 text-xs font-semibold text-[#a7abb6] hover:text-white"
                 >
-                  Restore this version
+                  Restaurar esta versión
                 </button>
               )}
             </li>

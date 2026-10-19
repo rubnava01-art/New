@@ -22,8 +22,8 @@ export default function FileExplorer({
   activePath,
   dirtyPaths,
   onSelect,
-  onCreate,
   onDelete,
+  onCreate,
 }: FileExplorerProps) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -46,12 +46,12 @@ export default function FileExplorer({
   return (
     <div className="flex h-full flex-col bg-[#101114]">
       <div className="flex items-center justify-between border-b border-[#2a2d36] px-4 py-3">
-        <h2 className="text-sm font-bold text-white">Files</h2>
+        <h2 className="text-sm font-bold text-white">Archivos</h2>
         <button
           onClick={() => { setAdding(true); setError(null); }}
           className="rounded-lg border border-[#2a2d36] bg-[#1d1f26] px-2.5 py-1 text-xs font-semibold text-[#a7abb6] hover:text-white"
         >
-          + New file
+          + Nuevo archivo
         </button>
       </div>
 
@@ -66,19 +66,20 @@ export default function FileExplorer({
                 if (e.key === 'Enter') commit();
                 if (e.key === 'Escape') { setAdding(false); setName(''); setError(null); }
               }}
-              placeholder="name.html"
-              className="code-font flex-1 rounded-lg border border-[#7c5cff] bg-[#17181d] px-2 py-1.5 text-sm text-white focus:outline-none"
+              placeholder="nombre.html"
+              enterKeyHint="done"
+              className="code-font flex-1 rounded-lg border border-[#7c5cff] bg-[#17181d] px-2 py-1.5 text-base text-white focus:outline-none"
             />
             <button
               onClick={commit}
               className="rounded-lg bg-[#7c5cff] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#9a82ff]"
             >
-              Add
+              Agregar
             </button>
           </div>
           {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
           <p className="mt-1 text-[11px] text-[#5b606c]">
-            Plain file names only (html, css, js, json, md, txt, svg).
+            Solo nombres simples (html, css, js, json, md, txt, svg).
           </p>
         </div>
       )}
@@ -86,7 +87,7 @@ export default function FileExplorer({
       <div className="slim-scroll flex-1 overflow-y-auto p-2">
         {sorted.length === 0 && (
           <p className="px-2 py-6 text-center text-sm text-[#5b606c]">
-            No files yet — generate a site from the chat to get started.
+            Aún no hay archivos — genera un sitio desde el chat para empezar.
           </p>
         )}
         {sorted.map((f) => (
@@ -103,7 +104,7 @@ export default function FileExplorer({
               <span className="text-[#5b606c]">{iconFor(f.path)}</span>
               <span className="code-font truncate text-sm text-[#d5d8e0]">{f.path}</span>
               {dirtyPaths.includes(f.path) && (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" title="Unsaved changes" />
+                <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" title="Cambios sin guardar" />
               )}
             </button>
             {confirmDelete === f.path ? (
@@ -112,7 +113,7 @@ export default function FileExplorer({
                   onClick={() => { onDelete(f.path); setConfirmDelete(null); }}
                   className="rounded-md bg-red-600 px-2 py-0.5 text-[11px] font-bold text-white"
                 >
-                  Yes
+                  Sí
                 </button>
                 <button
                   onClick={() => setConfirmDelete(null)}
@@ -123,9 +124,11 @@ export default function FileExplorer({
               </span>
             ) : (
               <button
-                aria-label={`Delete ${f.path}`}
+                aria-label={`Eliminar ${f.path}`}
                 onClick={() => setConfirmDelete(f.path)}
-                className="shrink-0 rounded-md px-1.5 text-[#5b606c] opacity-0 hover:text-red-400 group-hover:opacity-100"
+                // Always visible on touch devices (no hover on phones);
+                // hover-reveal only on devices with a fine pointer.
+                className="shrink-0 rounded-md px-1.5 text-[#5b606c] hover:text-red-400 lg:opacity-0 lg:group-hover:opacity-100"
               >
                 ✕
               </button>
