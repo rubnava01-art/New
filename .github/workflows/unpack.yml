@@ -8,10 +8,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          git ls-files | grep -v '^nest-forge-ai-codigo.zip$' | xargs -r git rm -q
+          git ls-files | grep -v '^nest-forge-ai-codigo.zip$' | grep -v '^\.github/workflows/' | xargs -r git rm -q
           unzip -o -q nest-forge-ai-codigo.zip
           rm nest-forge-ai-codigo.zip
-          git add -A
+          git add -A ':!.github/workflows'
           git -c user.name="github-actions" -c user.email="github-actions@github.com" commit -m "Unpack NEST Forge AI source"
           git push
 
