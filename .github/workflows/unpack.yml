@@ -2,6 +2,7 @@ name: Unpack source
 on: workflow_dispatch
 permissions:
   contents: write
+  workflows: write
 jobs:
   unpack:
     runs-on: ubuntu-latest
@@ -14,3 +15,20 @@ jobs:
           git add -A
           git -c user.name="github-actions" -c user.email="github-actions@github.com" commit -m "Unpack NEST Forge AI source"
           git push
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
