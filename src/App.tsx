@@ -45,6 +45,8 @@ export default function App() {
   const storageRef = useRef(new IndexedDBStorage());
   const providerRef = useRef(new DemoProvider());
   const readyRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const projectRef = useRef<Project | null>(null);
 
   const [metas, setMetas] = useState<ProjectMeta[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -89,24 +91,62 @@ export default function App() {
     })();
   }, []);
 
+  // Debounced persistence of the active project, with a flush path.
+  // The 600ms debounce alone can lose the latest changes if the tab is
+  // closed or backgrounded before the timer fires, so the latest project is
+  // also pushed to IndexedDB immediately on pagehide / when the tab hides.
+  const persistNow = useCallback(() => {
+    const latest = projectRef.current;
+    if (!readyRef.current || !latest) return;
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    storageRef.current
+      .saveProject(latest)
+      .then(() => {
+        setMetas((prev) => {
+          const meta = toMeta(latest);
+          const next = [meta, ...prev.filter((m) => m.id !== meta.id)];
+          next.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+          return next;
+        });
+      })
+      .catch((err) =>
+        setStorageError(err instanceof Error ? err.message : 'No se pudo guardar'),
+      );
+  }, []);
+
+  // Always have the latest project available for the flush path.
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  // Flush pending changes when the page is hidden or unloaded so the last
+  // 600ms of work is never silently lost.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow();
+    };
+    window.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', persistNow);
+    return () => {
+      window.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', persistNow);
+    };
+  }, [persistNow]);
+
   // Debounced persistence of the active project.
   useEffect(() => {
     if (!readyRef.current || !project) return;
-    const t = window.setTimeout(() => {
-      storageRef.current
-        .saveProject(project)
-        .then(() => {
-          setMetas((prev) => {
-            const meta = toMeta(project);
-            const next = [meta, ...prev.filter((m) => m.id !== meta.id)];
-            next.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-            return next;
-          });
-        })
-        .catch((err) => setStorageError(err instanceof Error ? err.message : 'No se pudo guardar'));
-    }, 600);
-    return () => window.clearTimeout(t);
-  }, [project]);
+    saveTimerRef.current = window.setTimeout(persistNow, 600);
+    return () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [project, persistNow]);
 
   const selectProject = useCallback(async (id: string) => {
     try {

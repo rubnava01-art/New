@@ -20,6 +20,7 @@ const SUPPORTED_MODS = [
   '“cambia el título principal a …”',
   '“agrega una sección de precios”',
   '“agrega una sección de testimonios”',
+  '“agrega una sección de contacto”',
   '“cambia el color a #7c5cff”',
   '“cambia el nombre del negocio a …”',
   '“elimina el archivo app.js”',
@@ -89,6 +90,60 @@ function pricingSnippet(): string {
           <article class="nf-card"><h3>Pro</h3><p class="nf-price">$79/mes</p><p>Para equipos en crecimiento que necesitan más potencia.</p></article>
           <article class="nf-card"><h3>Empresarial</h3><p class="nf-price">Personalizado</p><p>Soporte dedicado y límites a medida.</p></article>
         </div>
+      </div>
+    </section>`;
+}
+
+const CONTACT_CSS = `
+/* Agregado por NEST Forge AI (motor demo): sección de contacto */
+.nf-lead { color: var(--muted, #a7abb6); }
+.nf-form { display: grid; gap: 14px; margin-top: 22px; max-width: 560px; }
+.nf-field { display: grid; gap: 6px; font-size: 0.95rem; color: var(--text, #f5f6f8); }
+.nf-input { background: var(--surface, #17181d); border: 1px solid var(--line, #2a2d36); border-radius: 10px; padding: 12px 14px; color: var(--text, #f5f6f8); font: inherit; width: 100%; }
+.nf-input::placeholder { color: var(--muted, #a7abb6); }
+.nf-btn { background: var(--accent, #7c5cff); color: #fff; border: 0; border-radius: 10px; padding: 12px 20px; font: inherit; font-weight: 700; cursor: pointer; justify-self: start; }
+.nf-note { min-height: 1.4em; font-size: 0.9rem; color: var(--muted, #a7abb6); margin: 0; }
+.nf-note.ok { color: #4ade80; }
+.nf-note.err { color: #f87171; }
+`;
+
+function contactSnippet(): string {
+  return `
+    <section class="nf-section" id="contacto">
+      <div class="container">
+        <p class="eyebrow">Contacto</p>
+        <h2>Hablemos de tu proyecto.</h2>
+        <p class="nf-lead">Completa el formulario y te respondemos en un d&iacute;a h&aacute;bil.</p>
+        <form class="nf-form" id="nfContactForm" novalidate>
+          <label class="nf-field">Tu nombre<input class="nf-input" type="text" name="name" required placeholder="Mar&iacute;a L&oacute;pez" /></label>
+          <label class="nf-field">Email<input class="nf-input" type="email" name="email" required placeholder="maria@empresa.com" /></label>
+          <label class="nf-field">Mensaje<textarea class="nf-input" name="message" rows="4" required placeholder="Cu&eacute;ntanos qu&eacute; quieres lograr&hellip;"></textarea></label>
+          <button class="nf-btn" type="submit">Enviar mensaje</button>
+          <p class="nf-note" id="nfFormNote" role="status"></p>
+        </form>
+        <script>
+        /* Agregado por NEST Forge AI (motor demo): confirmación local del formulario de contacto (sin backend) */
+        (function () {
+          var form = document.getElementById('nfContactForm');
+          var note = document.getElementById('nfFormNote');
+          if (!form || !note) return;
+          form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var name = (form.name.value || '').trim();
+            var email = (form.email.value || '').trim();
+            var msg = (form.message.value || '').trim();
+            var emailOk = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+            if (!name || !emailOk || !msg) {
+              note.textContent = 'Completa tu nombre, un email válido y un mensaje.';
+              note.className = 'nf-note err';
+              return;
+            }
+            note.textContent = 'Gracias, ' + name + '. Tu mensaje quedó registrado solo en este navegador (demo) — no se envió a ningún servidor.';
+            note.className = 'nf-note ok';
+            form.reset();
+          });
+        })();
+        </script>
       </div>
     </section>`;
 }
@@ -222,7 +277,43 @@ export class DemoProvider implements AIProvider {
       };
     }
 
-    // 4. Change accent color (EN + ES)
+    // 4. Add a contact section (EN + ES)
+    if (/add\s+(?:a\s+)?contact(\s+section)?/i.test(text)
+      || /(?:agrega|añade)\s+(?:una\s+)?secci[óo]n\s+de\s+contacto/i.test(text)) {
+      const html = findFile(files, 'index.html');
+      const css = findFile(files, 'styles.css');
+      if (!html || !css) return emptyResult('Este proyecto necesita index.html y styles.css para agregar una sección de contacto.');
+      if (/id=["']contact(o)?["']/i.test(html.content)) {
+        return emptyResult('Este proyecto ya tiene una sección de contacto.');
+      }
+      const { html: withSection, where } = insertBeforeAnchor(html.content, contactSnippet());
+      const ops: FileOp[] = [
+        { kind: 'update_file', path: 'index.html', content: withSection },
+      ];
+      const touched = ['index.html'];
+      const steps = [
+        'Construí una sección de contacto en español desde la librería demo.',
+        `La inserté ${where} en index.html, con su propio script de confirmación local (sin backend).`,
+      ];
+      if (!/\.nf-form\b/.test(css.content)) {
+        ops.push({ kind: 'update_file', path: 'styles.css', content: css.content + '\n' + CONTACT_CSS });
+        touched.push('styles.css');
+        steps.push('Agregué los estilos del formulario a styles.css.');
+      } else {
+        steps.push('Los estilos del formulario ya estaban en styles.css, así que no los dupliqué.');
+      }
+      steps.push('Validé las operaciones.');
+      return {
+        plan: { steps, manifest: touched },
+        ops,
+        summary:
+          `Sección de contacto agregada ${where}. El formulario confirma localmente en el navegador (demo) — ` +
+          'no envía nada a ningún servidor. Conecta tu propio backend cuando quieras recibir mensajes reales.',
+        warnings: [],
+      };
+    }
+
+    // 5. Change accent color (EN + ES)
     m = text.match(/change\s+(?:the\s+)?(?:accent|primary|brand)\s+colou?r\s+to\s+(#[0-9a-f]{3,8}|[a-z]+)/i)
       ?? text.match(/cambia\s+(?:el\s+)?color(?:\s+(?:principal|de\s+acento|de\s+la\s+marca))?\s+a\s+(#[0-9a-f]{3,8}|[a-záéíóúñ]+)/i);
     if (m) {
@@ -244,7 +335,7 @@ export class DemoProvider implements AIProvider {
       };
     }
 
-    // 5. Rename the business (EN + ES)
+    // 6. Rename the business (EN + ES)
     m = text.match(/(?:rename|change)\s+(?:the\s+)?(?:business|brand|company|site)(?:\s+name)?\s+to\s+["“]?([^"”\n]+)["”]?/i)
       ?? text.match(/(?:cambia|renombra)\s+el\s+nombre(?:\s+(?:del\s+negocio|de\s+la\s+empresa|de\s+la\s+marca|del\s+sitio))?\s+a\s+["“]?([^"”\n]+)["”]?/i);
     if (m) {
@@ -277,7 +368,7 @@ export class DemoProvider implements AIProvider {
       };
     }
 
-    // 6. Delete a file (EN + ES)
+    // 7. Delete a file (EN + ES)
     m = text.match(/delete\s+(?:the\s+)?file\s+([A-Za-z0-9_.-]+)/i)
       ?? text.match(/elimina\s+(?:el\s+)?archivo\s+([A-Za-z0-9_.-]+)/i);
     if (m) {
@@ -302,7 +393,7 @@ export class DemoProvider implements AIProvider {
       };
     }
 
-    // 7. Help (EN + ES)
+    // 8. Help (EN + ES)
     if (/^(help|what can you do|commands)/i.test(text)
       || /^(ayuda|qu[eé]\s+puedes\s+hacer|comandos)/i.test(text)) {
       return emptyResult(
@@ -310,7 +401,7 @@ export class DemoProvider implements AIProvider {
       );
     }
 
-    // 8. Dark mode is already the default (EN + ES)
+    // 9. Dark mode is already the default (EN + ES)
     if (/dark\s*mode/i.test(text) || /modo\s+oscuro/i.test(text)) {
       return emptyResult('Todas las plantillas demo ya son oscuras por defecto, así que no hay nada que cambiar. (Un tema claro no es parte del motor demo.)');
     }
