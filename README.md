@@ -105,7 +105,11 @@ src/
   needs a preview build service (Phase 4).
 - **Cloud persistence** — implement `StorageProvider` for Supabase:
   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, with row-level security per user.
-- **Secure preview hardening** — resource limits, CSP, build diagnostics.
+- **Secure preview hardening** — resource limits and build diagnostics are still
+  pending; CSP is already in: every generated preview document gets a
+  `<meta http-equiv="Content-Security-Policy">` tag injected by
+  `buildPreviewHtml` (inline project scripts/styles allowed; objects, frames,
+  workers, form posts, `<base>` and nested frames blocked).
 - **Open preview in new tab** — omitted in the MVP because a top-level tab
   cannot be sandboxed the way the iframe is.
 - **Credit system** — the free-first MVP has no billing; design any usage

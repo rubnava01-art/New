@@ -1,6 +1,56 @@
 import type { ProjectFile } from '../types';
 
 /**
+ * Content Security Policy injected into every generated preview document as a
+ * <meta> tag. The preview inlines the project's own scripts/styles, so those
+ * still run (inline is allowed); everything else is tightened down:
+ * - no plugins/objects, no nested frames, no workers
+ * - no form submissions, no <base> URL hijacking
+ * - network for generated code is limited to plain fetches/images/media/fonts
+ *
+ * This matters most for the "open in new tab" view, which — unlike the
+ * sandboxed iframe — runs without the iframe sandbox. If the project already
+ * ships its own Content-Security-Policy meta tag, it is left untouched.
+ */
+export const PREVIEW_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  'img-src data: blob: https: http:',
+  'font-src data: https: http:',
+  'media-src data: blob: https: http:',
+  'connect-src https: http:',
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "worker-src 'none'",
+].join('; ');
+
+/**
+ * Insert the CSP <meta> as early as possible in <head> (CSP meta tags only
+ * govern resources parsed after them), or at the top of the document when
+ * there is no <head> / <html> tag at all.
+ */
+export function injectPreviewCsp(html: string): string {
+  if (/http-equiv\s*=\s*["']?content-security-policy/gi.test(html)) {
+    return html; // project already sets its own policy; respect it
+  }
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}" />`;
+  const headMatch = /<head\b[^>]*>/i.exec(html);
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length;
+    return html.slice(0, at) + '\n' + meta + html.slice(at);
+  }
+  const htmlMatch = /<html\b[^>]*>/i.exec(html);
+  if (htmlMatch) {
+    const at = htmlMatch.index + htmlMatch[0].length;
+    return html.slice(0, at) + `\n<head>\n${meta}\n</head>` + html.slice(at);
+  }
+  return meta + '\n' + html;
+}
+
+/**
  * Assemble project files into a single self-contained HTML document for the
  * sandboxed preview iframe.
  *
@@ -47,7 +97,7 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
     },
   );
 
-  return html;
+  return injectPreviewCsp(html);
 }
 
 function escapeComment(s: string): string {
