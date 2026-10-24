@@ -105,12 +105,18 @@ src/
   needs a preview build service (Phase 4).
 - **Cloud persistence** — implement `StorageProvider` for Supabase:
   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, with row-level security per user.
-- **Secure preview hardening** — resource limits and build diagnostics are still
-  pending; CSP is already in: every generated preview document gets a
-  `<meta http-equiv="Content-Security-Policy">` tag injected by
-  `buildPreviewHtml` (inline project scripts/styles allowed; objects, frames,
-  workers, form posts, `<base>` and nested frames blocked).
-- **Open preview in new tab** — omitted in the MVP because a top-level tab
-  cannot be sandboxed the way the iframe is.
+- **Secure preview hardening** — CSP is already in: every generated preview
+  document gets a `<meta http-equiv="Content-Security-Policy">` tag injected
+  by `buildPreviewHtml` (inline project scripts/styles allowed; objects,
+  frames, workers, form posts, `<base>` and nested frames blocked).
+  **Runtime error diagnostics** are also in: `buildPreviewHtml` injects a
+  small reporter script into every preview document that forwards JS errors
+  and unhandled promise rejections to the app via `postMessage` (the
+  sandboxed iframe's opaque origin prevents reading them directly), and
+  `PreviewPanel` shows them in a collapsible «⚠ errores de JavaScript» strip.
+  Resource limits for the preview are still pending.
+- **Open preview in new tab** — implemented (button «↗ Pestaña nueva» in
+  `PreviewPanel`): opens the same generated HTML via blob URL, with an
+  explicit label that it runs without the iframe sandbox.
 - **Credit system** — the free-first MVP has no billing; design any usage
   counter server-side when it arrives.

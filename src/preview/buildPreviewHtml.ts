@@ -51,6 +51,96 @@ export function injectPreviewCsp(html: string): string {
 }
 
 /**
+ * Message type posted by the in-preview error reporter (see
+ * injectErrorReporter) to the app window. The parent PreviewPanel listens
+ * for it and verifies the message came from its own preview iframe.
+ */
+export const PREVIEW_ERROR_MESSAGE_TYPE = 'nest-forge-preview-error';
+
+/** Shape of one runtime error reported from inside the preview iframe. */
+export interface PreviewError {
+  kind: 'error' | 'promise';
+  message: string;
+  lineno: number;
+  colno: number;
+}
+
+/**
+ * Marker comment inside the injected reporter script; used to keep
+ * re-processing idempotent.
+ */
+const REPORTER_MARKER = 'nest-forge-preview-reporter';
+
+/**
+ * Inline script that runs inside the preview document and forwards runtime
+ * JS errors (window 'error' events and unhandled promise rejections) to the
+ * parent app via postMessage, so the preview panel can show diagnostics.
+ *
+ * Why postMessage: the preview iframe is sandboxed without
+ * allow-same-origin, so the app cannot read into it (opaque origin) — but
+ * the iframe itself is allowed to postMessage out to its parent.
+ *
+ * The reporter installs before any project script runs (it is injected at
+ * the end of <head>, before the inlined project scripts that
+ * buildPreviewHtml appends later in the body), so syntax-time failures in
+ * the document are still caught. It only posts when it is actually inside
+ * an iframe (window.parent !== window), so "open in new tab" views are not
+ * affected. Reporting is capped at 20 errors to survive runaway loops.
+ */
+const REPORTER_SCRIPT =
+  `<script>\n` +
+  `/* ${REPORTER_MARKER} */\n` +
+  `(function () {\n` +
+  `  if (window.__nestForgeReporter) return;\n` +
+  `  window.__nestForgeReporter = true;\n` +
+  `  var errors = [];\n` +
+  `  function send() {\n` +
+  `    try {\n` +
+  `      if (window.parent && window.parent !== window) {\n` +
+  `        window.parent.postMessage({ type: '${PREVIEW_ERROR_MESSAGE_TYPE}', errors: errors.slice() }, '*');\n` +
+  `      }\n` +
+  `    } catch (e) { /* never break the preview itself */ }\n` +
+  `  }\n` +
+  `  function report(kind, message, lineno, colno) {\n` +
+  `    if (errors.length >= 20) return;\n` +
+  `    errors.push({ kind: kind, message: String(message).slice(0, 500), lineno: lineno || 0, colno: colno || 0 });\n` +
+  `    send();\n` +
+  `  }\n` +
+  `  window.addEventListener('error', function (ev) {\n` +
+  `    report('error', ev.message || 'Error de JavaScript desconocido', ev.lineno, ev.colno);\n` +
+  `  });\n` +
+  `  window.addEventListener('unhandledrejection', function (ev) {\n` +
+  `    var r = ev.reason;\n` +
+  `    var msg = r && (r.stack || r.message) ? String(r.stack || r.message) : String(r);\n` +
+  `    report('promise', msg, 0, 0);\n` +
+  `  });\n` +
+  `})();\n` +
+  `</script>`;
+
+/**
+ * Insert the error reporter at the end of <head> (after the CSP meta tag,
+ * which injectPreviewCsp places at the top of <head> — CSP meta tags only
+ * govern scripts parsed after them, and inline scripts are allowed by the
+ * preview policy). Falls back to before </body>, then to the end of the
+ * document. Skips injection when the marker is already present, and the
+ * caller skips the "No index.html" fallback document entirely.
+ */
+export function injectErrorReporter(html: string): string {
+  if (html.includes(REPORTER_MARKER)) return html;
+  const headClose = /<\/head\s*>/i.exec(html);
+  if (headClose) {
+    const at = headClose.index;
+    return html.slice(0, at) + '\n' + REPORTER_SCRIPT + '\n' + html.slice(at);
+  }
+  const bodyClose = /<\/body\s*>/i.exec(html);
+  if (bodyClose) {
+    const at = bodyClose.index;
+    return html.slice(0, at) + '\n' + REPORTER_SCRIPT + '\n' + html.slice(at);
+  }
+  return html + '\n' + REPORTER_SCRIPT + '\n';
+}
+
+/**
  * Assemble project files into a single self-contained HTML document for the
  * sandboxed preview iframe.
  *
@@ -71,8 +161,9 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
   const byPath = new Map(files.map((f) => [f.path, f.content]));
   let html = byPath.get('index.html') ?? '';
 
+  const fallback = '<!DOCTYPE html><html><body style="background:#101114;color:#a7abb6;font-family:sans-serif;padding:40px"><p>No index.html in this project yet — generate or create one to see a preview.</p></body></html>';
   if (!html.trim()) {
-    return '<!DOCTYPE html><html><body style="background:#101114;color:#a7abb6;font-family:sans-serif;padding:40px"><p>No index.html in this project yet — generate or create one to see a preview.</p></body></html>';
+    return fallback;
   }
 
   // Inline <link rel="stylesheet" href="..."> for project CSS files.
@@ -97,7 +188,12 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
     },
   );
 
-  return injectPreviewCsp(html);
+  // Runtime error diagnostics: the sandboxed iframe cannot be read from the
+  // outside (opaque origin), so the preview document itself reports JS errors
+  // back to the app via postMessage (see injectErrorReporter). The "No
+  // index.html" fallback document above gets neither CSP nor a reporter —
+  // there is no project code in it to diagnose.
+  return injectErrorReporter(injectPreviewCsp(html));
 }
 
 function escapeComment(s: string): string {

@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  PREVIEW_ERROR_MESSAGE_TYPE,
+  type PreviewError,
+} from '../preview/buildPreviewHtml';
 
 interface PreviewPanelProps {
   html: string;
@@ -18,6 +22,31 @@ const VIEWPORTS: Record<Viewport, { label: string; width: string }> = {
 export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: PreviewPanelProps) {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [errors, setErrors] = useState<PreviewError[]>([]);
+  const [diagOpen, setDiagOpen] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Runtime error diagnostics from inside the preview iframe. The iframe is
+  // sandboxed without allow-same-origin (opaque origin), so the app cannot
+  // read its window — instead the injected reporter script postMessages
+  // errors out. The source check guarantees we only accept messages from
+  // our own preview iframe, not from any nested frame the generated page
+  // might embed.
+  useEffect(() => {
+    setErrors([]);
+    setDiagOpen(false);
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data;
+      if (!data || data.type !== PREVIEW_ERROR_MESSAGE_TYPE) return;
+      const incoming: PreviewError[] = Array.isArray(data.errors) ? data.errors : [];
+      if (incoming.length > 0) {
+        setErrors((prev) => [...prev, ...incoming]);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [html, refreshKey]);
 
   // Opens the same generated HTML in a real browser tab (via blob URL).
   // Unlike the iframe above, a new tab runs without the iframe sandbox,
@@ -77,6 +106,7 @@ export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: Pr
         >
           <iframe
             key={refreshKey}
+            ref={iframeRef}
             title="Live preview"
             srcDoc={html}
             sandbox="allow-scripts"
@@ -84,6 +114,57 @@ export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: Pr
           />
         </div>
       </div>
+
+      {errors.length > 0 && (
+        <div className="border-t border-red-900/60 bg-[#1d1013]">
+          <button
+            onClick={() => setDiagOpen((o) => !o)}
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs font-semibold text-red-300 hover:text-red-200"
+          >
+            <span>{diagOpen ? '▾' : '▸'}</span>
+            <span>
+              ⚠ {errors.length} {errors.length === 1 ? 'error' : 'errores'} de
+              JavaScript en la vista previa — la página puede verse rota
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setErrors([]);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  setErrors([]);
+                }
+              }}
+              className="ml-auto rounded-lg border border-red-900 px-2 py-0.5 text-[11px] font-bold text-red-300 hover:bg-red-950"
+              title="Limpiar la lista de errores"
+            >
+              Limpiar
+            </span>
+          </button>
+          {diagOpen && (
+            <ul className="slim-scroll max-h-40 space-y-1 overflow-auto px-4 pb-3">
+              {errors.map((err, i) => (
+                <li
+                  key={i}
+                  className="rounded-lg border border-red-900/40 bg-[#141014] px-3 py-1.5 font-mono text-[11px] text-red-200"
+                >
+                  <span className="mr-2 rounded bg-red-950 px-1.5 py-0.5 text-[10px] font-bold text-red-300">
+                    {err.kind === 'promise' ? 'PROMESA' : 'ERROR'}
+                  </span>
+                  {err.message}
+                  {err.lineno > 0 && (
+                    <span className="text-red-400"> · línea {err.lineno}{err.colno > 0 ? `, col ${err.colno}` : ''}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <p className="border-t border-[#2a2d36] px-4 py-2 text-[11px] text-[#5b606c]">
         Vista previa aislada (scripts permitidos, mismo origen bloqueado) — el código generado
