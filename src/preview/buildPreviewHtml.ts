@@ -57,6 +57,15 @@ export function injectPreviewCsp(html: string): string {
  */
 export const PREVIEW_ERROR_MESSAGE_TYPE = 'nest-forge-preview-error';
 
+/**
+ * Message type posted by the in-preview heartbeat (see injectErrorReporter)
+ * every 2 seconds while the preview's main thread is alive. PreviewPanel
+ * uses it as a watchdog: if heartbeats stop, the preview is treated as
+ * unresponsive (e.g. a synchronous infinite loop froze it) and the panel
+ * offers to reload the iframe, which kills the loop.
+ */
+export const PREVIEW_HEARTBEAT_MESSAGE_TYPE = 'nest-forge-preview-heartbeat';
+
 /** Shape of one runtime error reported from inside the preview iframe. */
 export interface PreviewError {
   kind: 'error' | 'promise';
@@ -86,6 +95,13 @@ const REPORTER_MARKER = 'nest-forge-preview-reporter';
  * the document are still caught. It only posts when it is actually inside
  * an iframe (window.parent !== window), so "open in new tab" views are not
  * affected. Reporting is capped at 20 errors to survive runaway loops.
+ *
+ * Heartbeat: the reporter also posts a small heartbeat every 2 seconds.
+ * A synchronous infinite loop blocks the preview's main thread, so
+ * intervals stop firing — that silence is exactly what PreviewPanel's
+ * watchdog detects. (A loop that yields, e.g. via setTimeout recursion,
+ * keeps the thread alive and is NOT caught; it also does not freeze the
+ * preview, so the user can still hit "Actualizar" manually.)
  */
 const REPORTER_SCRIPT =
   `<script>\n` +
@@ -114,6 +130,13 @@ const REPORTER_SCRIPT =
   `    var msg = r && (r.stack || r.message) ? String(r.stack || r.message) : String(r);\n` +
   `    report('promise', msg, 0, 0);\n` +
   `  });\n` +
+  `  setInterval(function () {\n` +
+  `    try {\n` +
+  `      if (window.parent && window.parent !== window) {\n` +
+  `        window.parent.postMessage({ type: '${PREVIEW_HEARTBEAT_MESSAGE_TYPE}' }, '*');\n` +
+  `      }\n` +
+  `    } catch (e) { /* never break the preview itself */ }\n` +
+  `  }, 2000);\n` +
   `})();\n` +
   `</script>`;
 

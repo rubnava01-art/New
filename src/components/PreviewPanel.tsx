@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   PREVIEW_ERROR_MESSAGE_TYPE,
+  PREVIEW_HEARTBEAT_MESSAGE_TYPE,
   type PreviewError,
 } from '../preview/buildPreviewHtml';
 
@@ -24,29 +25,78 @@ export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: Pr
   const [refreshKey, setRefreshKey] = useState(0);
   const [errors, setErrors] = useState<PreviewError[]>([]);
   const [diagOpen, setDiagOpen] = useState(false);
+  const [unresponsive, setUnresponsive] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const watchdogRef = useRef<number | null>(null);
+  // Set by "Ignorar": the banner stays hidden until the next project load
+  // or manual refresh, even if the watchdog timer keeps firing.
+  const suppressedRef = useRef(false);
 
-  // Runtime error diagnostics from inside the preview iframe. The iframe is
+  const clearWatchdog = () => {
+    if (watchdogRef.current !== null) {
+      window.clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  };
+  const armWatchdog = (ms: number) => {
+    clearWatchdog();
+    watchdogRef.current = window.setTimeout(() => {
+      if (!suppressedRef.current) setUnresponsive(true);
+    }, ms);
+  };
+
+  // Runtime error diagnostics + unresponsiveness watchdog, both fed by the
+  // reporter script injected into the preview document. The iframe is
   // sandboxed without allow-same-origin (opaque origin), so the app cannot
-  // read its window — instead the injected reporter script postMessages
-  // errors out. The source check guarantees we only accept messages from
-  // our own preview iframe, not from any nested frame the generated page
-  // might embed.
+  // read its window — instead the reporter postMessages errors and a
+  // 2-second heartbeat out. The source check guarantees we only accept
+  // messages from our own preview iframe, not from any nested frame the
+  // generated page might embed. A synchronous infinite loop blocks the
+  // preview's main thread, so heartbeats stop and the watchdog fires; the
+  // "Recargar" button then remounts the iframe, which kills the loop.
+  // The watchdog is only armed for real previews (buildOk): the "No
+  // index.html" fallback document has no reporter and would otherwise
+  // trip it immediately.
   useEffect(() => {
     setErrors([]);
     setDiagOpen(false);
+    setUnresponsive(false);
+    suppressedRef.current = false;
+    clearWatchdog();
+    if (buildOk) armWatchdog(8000);
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const data = event.data;
-      if (!data || data.type !== PREVIEW_ERROR_MESSAGE_TYPE) return;
+      if (!data) return;
+      if (data.type === PREVIEW_HEARTBEAT_MESSAGE_TYPE) {
+        if (!suppressedRef.current) setUnresponsive(false);
+        armWatchdog(6000);
+        return;
+      }
+      if (data.type !== PREVIEW_ERROR_MESSAGE_TYPE) return;
       const incoming: PreviewError[] = Array.isArray(data.errors) ? data.errors : [];
+      // The reporter sends its FULL error list on every report, so replace
+      // the state instead of appending — appending duplicated every error
+      // reported before the latest one.
       if (incoming.length > 0) {
-        setErrors((prev) => [...prev, ...incoming]);
+        setErrors(incoming);
       }
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      clearWatchdog();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, refreshKey]);
+
+  // Remounts the iframe (killing any frozen preview loop) and re-arms the
+  // watchdog via the effect above.
+  const reloadPreview = () => {
+    setUnresponsive(false);
+    suppressedRef.current = false;
+    setRefreshKey((k) => k + 1);
+  };
 
   // Opens the same generated HTML in a real browser tab (via blob URL).
   // Unlike the iframe above, a new tab runs without the iframe sandbox,
@@ -114,6 +164,32 @@ export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: Pr
           />
         </div>
       </div>
+
+      {unresponsive && buildOk && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-amber-900/60 bg-[#1d1503] px-4 py-2">
+          <span className="text-xs font-semibold text-amber-300">
+            ⚠ La vista previa no responde — puede contener un bucle infinito o un script
+            muy pesado. Recargarla detiene el código atascado.
+          </span>
+          <button
+            onClick={reloadPreview}
+            className="ml-auto rounded-lg border border-amber-900 bg-amber-950 px-2 py-1 text-[11px] font-bold text-amber-200 hover:bg-amber-900"
+          >
+            ↻ Recargar vista previa
+          </button>
+          <button
+            onClick={() => {
+              suppressedRef.current = true;
+              clearWatchdog();
+              setUnresponsive(false);
+            }}
+            className="rounded-lg border border-amber-900 px-2 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-950"
+            title="Ocultar este aviso hasta la próxima vista previa"
+          >
+            Ignorar
+          </button>
+        </div>
+      )}
 
       {errors.length > 0 && (
         <div className="border-t border-red-900/60 bg-[#1d1013]">

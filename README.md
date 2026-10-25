@@ -114,7 +114,13 @@ src/
   and unhandled promise rejections to the app via `postMessage` (the
   sandboxed iframe's opaque origin prevents reading them directly), and
   `PreviewPanel` shows them in a collapsible «⚠ errores de JavaScript» strip.
-  Resource limits for the preview are still pending.
+  **Preview watchdog** is also in: the reporter posts a heartbeat every
+  2 seconds, and `PreviewPanel` shows an amber «⚠ La vista previa no
+  responde» banner when heartbeats stop (e.g. a synchronous infinite loop
+  froze the preview) with a «Recargar vista previa» button that remounts
+  the iframe and kills the loop. Loops that yield (e.g. setTimeout
+  recursion) are not caught — they also do not freeze the preview, so the
+  user can still hit «Actualizar» manually.
 - **Open preview in new tab** — implemented (button «↗ Pestaña nueva» in
   `PreviewPanel`): opens the same generated HTML via blob URL, with an
   explicit label that it runs without the iframe sandbox.
