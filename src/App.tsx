@@ -5,6 +5,7 @@ import { IndexedDBStorage } from './storage/IndexedDBStorage';
 import { DemoProvider } from './providers/DemoProvider';
 import { applyOps, validateOps } from './providers/validateOps';
 import { extractBusinessName } from './templates';
+import { draftKey, pathsForProject, withoutDraft, withoutFiles, withoutProjectDrafts } from './editor/drafts';
 import { buildPreviewHtml } from './preview/buildPreviewHtml';
 import { downloadBlob, exportProjectZip } from './export/exportZip';
 import Sidebar from './components/Sidebar';
@@ -122,6 +123,13 @@ export default function App() {
     projectRef.current = project;
   }, [project]);
 
+  // Same mirror for drafts: sendMessage reads them to detect stale drafts
+  // touched by the engine, and must not see a stale closure copy.
+  const draftsRef = useRef(drafts);
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
+
   // Flush pending changes when the page is hidden or unloaded so the last
   // 600ms of work is never silently lost.
   useEffect(() => {
@@ -153,7 +161,8 @@ export default function App() {
       const full = await storageRef.current.getProject(id);
       if (!full) return;
       setProject(full);
-      setDrafts({});
+      // Drafts are scoped per project now: switching projects no longer
+      // discards unsaved edits made in another project.
       setActivePath(full.files.some((f) => f.path === 'index.html') ? 'index.html' : (full.files[0]?.path ?? null));
       setCenterTab('chat');
     } catch (err) {
@@ -175,7 +184,7 @@ export default function App() {
     };
     setProject(p);
     setActivePath(null);
-    setDrafts({});
+    // Drafts of other projects are kept (scoped per project id).
     setCenterTab('chat');
     setMobileView('chat');
   }, []);
@@ -225,6 +234,15 @@ export default function App() {
           p = { ...p, messages: [...p.messages, infoMsg], generationStatus: 'idle', updatedAt: stamp };
         } else {
           const nextFiles = applyOps(p.files, result.ops, stamp);
+          // The engine just replaced these files, so any unsaved draft
+          // for them is stale: keeping it would show old content in the
+          // editor and, on save, silently overwrite the engine's change.
+          // Discard only the touched files' drafts, and say so in the chat.
+          const touchedPaths = result.ops.map((o) => o.path);
+          const discardedDrafts = touchedPaths.filter(
+            (path) => draftKey(p.id, path) in draftsRef.current,
+          );
+          setDrafts((prev) => withoutFiles(prev, p.id, touchedPaths));
           const version: ProjectVersion = {
             id: newId(),
             versionNumber: p.versions.length + 1,
@@ -244,7 +262,12 @@ export default function App() {
             role: 'assistant',
             createdAt: stamp,
             kind: 'summary',
-            content: result.summary + (result.warnings.length > 0 ? '\n\nNote: ' + result.warnings.join(' ') : ''),
+            content:
+              result.summary +
+              (result.warnings.length > 0 ? '\n\nNote: ' + result.warnings.join(' ') : '') +
+              (discardedDrafts.length > 0
+                ? `\n\nNota: tenías cambios sin guardar en ${discardedDrafts.join(', ')} y el motor acaba de modificar esos archivos, así que descarté esos borradores para no sobrescribir el cambio. Guarda antes de pedir cambios la próxima vez para conservar tus ediciones.`
+                : ''),
           };
           let name = p.name;
           if (isNew && name === 'Proyecto sin título') {
@@ -294,26 +317,23 @@ export default function App() {
 
   // ---- File editing ----
   const activeFile = project?.files.find((f) => f.path === activePath) ?? null;
-  const editorValue = activePath && activePath in drafts ? drafts[activePath] : (activeFile?.content ?? '');
-  const editorDirty = !!activePath && activePath in drafts;
-  const dirtyPaths = Object.keys(drafts);
+  const activeDraftKey = project && activePath ? draftKey(project.id, activePath) : null;
+  const editorValue = activeDraftKey && activeDraftKey in drafts ? drafts[activeDraftKey] : (activeFile?.content ?? '');
+  const editorDirty = !!activeDraftKey && activeDraftKey in drafts;
+  const dirtyPaths = project ? pathsForProject(drafts, project.id) : [];
 
   const saveFile = useCallback(() => {
-    if (!project || !activePath || !(activePath in drafts)) return;
+    if (!project || !activePath || !activeDraftKey || !(activeDraftKey in drafts)) return;
     const stamp = nowIso();
     setProject({
       ...project,
       files: project.files.map((f) =>
-        f.path === activePath ? { ...f, content: drafts[activePath], updatedAt: stamp } : f,
+        f.path === activePath ? { ...f, content: drafts[activeDraftKey], updatedAt: stamp } : f,
       ),
       updatedAt: stamp,
     });
-    setDrafts((prev) => {
-      const next = { ...prev };
-      delete next[activePath];
-      return next;
-    });
-  }, [project, activePath, drafts]);
+    setDrafts((prev) => withoutDraft(prev, project.id, activePath));
+  }, [project, activePath, activeDraftKey, drafts]);
 
   const createFile = useCallback(
     (name: string): string | null => {
@@ -344,11 +364,7 @@ export default function App() {
       const stamp = nowIso();
       const files = project.files.filter((f) => f.path !== path);
       setProject({ ...project, files, updatedAt: stamp });
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
+      setDrafts((prev) => withoutDraft(prev, project.id, path));
       if (activePath === path) {
         setActivePath(files.some((f) => f.path === 'index.html') ? 'index.html' : (files[0]?.path ?? null));
       }
@@ -384,7 +400,9 @@ export default function App() {
         messages: [...project.messages, msg],
         updatedAt: stamp,
       });
-      setDrafts({});
+      // Restoring replaces the files wholesale, so this project's drafts
+      // no longer apply — but other projects' drafts are untouched.
+      setDrafts((prev) => withoutProjectDrafts(prev, project.id));
       setActivePath(v.files.some((f) => f.path === 'index.html') ? 'index.html' : (v.files[0]?.path ?? null));
       setCenterTab('chat');
     },
@@ -429,13 +447,14 @@ export default function App() {
       setPendingDeleteId(null);
       const remaining = metas.filter((m) => m.id !== id);
       setMetas(remaining);
+      // The deleted project's drafts go with it; other projects keep theirs.
+      setDrafts((prev) => withoutProjectDrafts(prev, id));
       if (project?.id === id) {
         if (remaining.length > 0) {
           selectProject(remaining[0].id);
         } else {
           setProject(null);
           setActivePath(null);
-          setDrafts({});
         }
       }
     },
@@ -608,7 +627,10 @@ export default function App() {
                         path={activePath}
                         value={editorValue}
                         dirty={editorDirty}
-                        onChange={(v) => setDrafts((prev) => ({ ...prev, [activePath]: v }))}
+                        onChange={(v) => {
+                          if (!project || !activePath) return;
+                          setDrafts((prev) => ({ ...prev, [draftKey(project.id, activePath)]: v }));
+                        }}
                         onSave={saveFile}
                       />
                     ) : (

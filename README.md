@@ -59,6 +59,12 @@ Then set *Settings → Pages → Source* to the `gh-pages` branch.
   `iframe sandbox="allow-scripts"` (no `allow-same-origin`); project CSS/JS is
   inlined so relative references work. Desktop / tablet / mobile viewports.
 - **File explorer + editor** — create/delete files, dirty indicators, Ctrl+S.
+  Unsaved drafts are scoped per project, so switching projects no longer
+  discards an edit you have not saved yet (drafts are still in-memory only
+  and do not survive a page reload). When the demo engine modifies a file
+  you were editing without saving, that file's stale draft is discarded
+  and the chat says so — otherwise saving later would silently overwrite
+  the engine's change with your old text.
 - **Version history** — a snapshot is saved before every engine change; restore
   any version (restore itself creates a new snapshot).
 - **ZIP export** — source files + `README.md` + `package.json`; secret-like
