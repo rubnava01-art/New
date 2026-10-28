@@ -8,9 +8,11 @@
  * and file paths can never contain ':' per App's PATH_RE, so the key is
  * unambiguous), so switching projects preserves each project's drafts.
  *
- * Drafts are still in-memory only: they do not survive a page reload.
- * That pre-existing limit is unchanged — only the silent loss on
- * project switch is fixed.
+ * Drafts also persist to IndexedDB (their own object store, via
+ * StorageProvider.saveDrafts/getDrafts), so an unsaved edit survives a
+ * page reload. They are deliberately kept out of the project record:
+ * a draft must never be mistaken for saved content, and deleting a
+ * project drops its drafts without touching other projects' drafts.
  */
 
 export function draftKey(projectId: string, path: string): string {

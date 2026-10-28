@@ -47,6 +47,11 @@ export default function App() {
   const providerRef = useRef(new DemoProvider());
   const readyRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
+  const draftsTimerRef = useRef<number | null>(null);
+  // False until the persisted drafts load succeeds. While false, no draft
+  // sync runs: syncing the initial empty map before the load finished
+  // would wipe the very drafts the reload is supposed to restore.
+  const draftsReadyRef = useRef(false);
   const projectRef = useRef<Project | null>(null);
 
   const [metas, setMetas] = useState<ProjectMeta[]>([]);
@@ -83,6 +88,10 @@ export default function App() {
             setActivePath(full.files.some((f) => f.path === 'index.html') ? 'index.html' : (full.files[0]?.path ?? null));
           }
         }
+        // Restore unsaved edits from the previous session. If this fails,
+        // draftsReadyRef stays false so no sync can wipe the persisted set.
+        setDrafts(await storageRef.current.getDrafts());
+        draftsReadyRef.current = true;
       } catch (err) {
         setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
       } finally {
@@ -130,19 +139,51 @@ export default function App() {
     draftsRef.current = drafts;
   }, [drafts]);
 
+  // Debounced persistence of unsaved drafts, with a flush path — same
+  // pattern as projects, so an edit survives a reload, a backgrounded
+  // tab, or a closed tab. The flush reads draftsRef, never a stale copy.
+  const persistDraftsNow = useCallback(() => {
+    if (!draftsReadyRef.current) return;
+    if (draftsTimerRef.current !== null) {
+      window.clearTimeout(draftsTimerRef.current);
+      draftsTimerRef.current = null;
+    }
+    storageRef.current.saveDrafts(draftsRef.current).catch((err) =>
+      setStorageError(err instanceof Error ? err.message : 'No se pudieron guardar los borradores'),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!draftsReadyRef.current) return;
+    draftsTimerRef.current = window.setTimeout(persistDraftsNow, 600);
+    return () => {
+      if (draftsTimerRef.current !== null) {
+        window.clearTimeout(draftsTimerRef.current);
+        draftsTimerRef.current = null;
+      }
+    };
+  }, [drafts, persistDraftsNow]);
+
   // Flush pending changes when the page is hidden or unloaded so the last
   // 600ms of work is never silently lost.
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') persistNow();
+      if (document.visibilityState === 'hidden') {
+        persistNow();
+        persistDraftsNow();
+      }
+    };
+    const onPageHide = () => {
+      persistNow();
+      persistDraftsNow();
     };
     window.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', persistNow);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
       window.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', persistNow);
+      window.removeEventListener('pagehide', onPageHide);
     };
-  }, [persistNow]);
+  }, [persistNow, persistDraftsNow]);
 
   // Debounced persistence of the active project.
   useEffect(() => {
@@ -467,7 +508,9 @@ export default function App() {
     setExporting(true);
     setExportError(null);
     try {
-      const blob = await exportProjectZip(project);
+      // Export what the editor shows, not just what is saved: pass the
+      // unsaved drafts so the ZIP never ships stale content silently.
+      const blob = await exportProjectZip(project, drafts);
       const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
       downloadBlob(blob, `${slug}.zip`);
     } catch (err) {
@@ -475,7 +518,7 @@ export default function App() {
     } finally {
       setExporting(false);
     }
-  }, [project, exporting]);
+  }, [project, drafts, exporting]);
 
   // ---- Preview ----
   const previewHtml = useMemo(

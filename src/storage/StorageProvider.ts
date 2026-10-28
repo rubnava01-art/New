@@ -17,6 +17,15 @@ export interface StorageProvider {
   getProject(id: string): Promise<Project | null>;
   /** List project metadata, newest first. */
   listProjects(): Promise<ProjectMeta[]>;
-  /** Delete a project and all its data. */
+  /** Delete a project and all its data (including its unsaved drafts). */
   deleteProject(id: string): Promise<void>;
+  /**
+   * Replace the persisted unsaved-draft set with exactly the given map
+   * (keys are `${projectId}:${path}`; see editor/drafts.ts). Drafts are
+   * stored apart from projects so an unsaved edit survives a page reload
+   * without ever being mistaken for saved content.
+   */
+  saveDrafts(drafts: Record<string, string>): Promise<void>;
+  /** Load all persisted unsaved drafts (empty map when there are none). */
+  getDrafts(): Promise<Record<string, string>>;
 }

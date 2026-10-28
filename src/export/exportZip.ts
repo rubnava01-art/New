@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import type { Project, ProjectFile } from '../types';
+import { draftKey } from '../editor/drafts';
 
 /** File names that must never leave the app inside an export. */
 const SECRET_PATTERNS = [/^\.env/i, /secret/i, /token/i, /private[_-]?key/i, /\.pem$/i];
@@ -72,10 +73,42 @@ function exportPackageJson(project: Project): string {
 }
 
 /**
+ * Files as the user currently sees them in the editor: any unsaved draft
+ * for this project replaces the saved content of its file. Drafts of
+ * other projects, and drafts for paths that no longer exist in the
+ * project (e.g. a file deleted after the draft was written), are
+ * ignored — they must never invent a file in the export. The input
+ * array and its file objects are never mutated.
+ */
+export function overlayDrafts(
+  files: ProjectFile[],
+  drafts: Record<string, string>,
+  projectId: string,
+): ProjectFile[] {
+  return files.map((f) => {
+    const key = draftKey(projectId, f.path);
+    if (!(key in drafts)) return f;
+    return { ...f, content: drafts[key] };
+  });
+}
+
+/**
  * Build a ZIP archive of the project: source files + README + package.json.
  * Secret-like files are excluded. Returns the archive as a Blob.
+ *
+ * `drafts` is the app's unsaved-draft map (same shape as App's state).
+ * Without it, an export made with unsaved edits silently shipped the
+ * old saved content instead of what the editor was showing — the ZIP
+ * left the app looking like the user's latest work while containing
+ * the previous version. Passing the drafts makes the export match
+ * the editor; exporting does not save the drafts themselves, so the
+ * dirty indicators stay until the user saves.
  */
-export async function exportProjectZip(project: Project): Promise<Blob> {
+export async function exportProjectZip(
+  project: Project,
+  drafts: Record<string, string> = {},
+): Promise<Blob> {
+  const effectiveProject = { ...project, files: overlayDrafts(project.files, drafts, project.id) };
   const zip = new JSZip();
   const seen = new Set<string>();
 
@@ -85,7 +118,7 @@ export async function exportProjectZip(project: Project): Promise<Blob> {
     zip.file(path, content);
   };
 
-  const files: ProjectFile[] = [...project.files].sort((a, b) =>
+  const files: ProjectFile[] = [...effectiveProject.files].sort((a, b) =>
     a.path.localeCompare(b.path),
   );
   for (const f of files) addFile(f.path, f.content);
@@ -94,8 +127,8 @@ export async function exportProjectZip(project: Project): Promise<Blob> {
     throw new Error('No se puede exportar: el proyecto no tiene index.html.');
   }
 
-  addFile('README.md', exportReadme(project));
-  addFile('package.json', exportPackageJson(project));
+  addFile('README.md', exportReadme(effectiveProject));
+  addFile('package.json', exportPackageJson(effectiveProject));
 
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
