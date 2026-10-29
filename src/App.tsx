@@ -7,7 +7,7 @@ import { applyOps, validateOps } from './providers/validateOps';
 import { extractBusinessName } from './templates';
 import { draftKey, pathsForProject, withoutDraft, withoutFiles, withoutProjectDrafts } from './editor/drafts';
 import { buildPreviewHtml } from './preview/buildPreviewHtml';
-import { downloadBlob, exportProjectZip } from './export/exportZip';
+import { downloadBlob, exportProjectZip, overlayDrafts } from './export/exportZip';
 import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import PreviewPanel from './components/PreviewPanel';
@@ -521,10 +521,31 @@ export default function App() {
   }, [project, drafts, exporting]);
 
   // ---- Preview ----
+  // The preview shows what the editor shows, not just what is saved:
+  // unsaved drafts are overlaid onto the project files (same helper the
+  // ZIP export uses), so an edit appears in the preview without Ctrl+S.
+  // The drafts snapshot is debounced: rebuilding the preview on every
+  // keystroke would reload the iframe while the user is still typing
+  // (losing scroll position and form state inside the preview), so the
+  // preview only picks up edits once typing pauses for 800 ms.
+  const [previewDrafts, setPreviewDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPreviewDrafts(drafts), 800);
+    return () => window.clearTimeout(timer);
+  }, [drafts]);
   const previewHtml = useMemo(
-    () => (project ? buildPreviewHtml(project.files) : ''),
-    [project],
+    () =>
+      project
+        ? buildPreviewHtml(overlayDrafts(project.files, previewDrafts, project.id))
+        : '',
+    [project, previewDrafts],
   );
+  // Drafts actually reflected in the preview above (debounced snapshot,
+  // not the live map) — so the badge never claims more than the preview
+  // is showing.
+  const previewUnsavedCount = project
+    ? pathsForProject(previewDrafts, project.id).length
+    : 0;
   const hasIndex = !!project?.files.some((f) => f.path === 'index.html');
 
   const centerTabs: Array<{ id: CenterTab; label: string }> = [
@@ -706,6 +727,7 @@ export default function App() {
             buildOk={hasIndex}
             buildNote={hasIndex ? 'index.html encontrado y ensamblado' : 'Agrega un index.html para activar la vista previa'}
             fileCount={project?.files.length ?? 0}
+            unsavedCount={previewUnsavedCount}
           />
         </div>
       </div>

@@ -10,6 +10,8 @@ interface PreviewPanelProps {
   buildOk: boolean;
   buildNote: string;
   fileCount: number;
+  /** Unsaved drafts actually reflected in this preview (0 = fully saved). */
+  unsavedCount?: number;
 }
 
 type Viewport = 'desktop' | 'tablet' | 'mobile';
@@ -20,7 +22,7 @@ const VIEWPORTS: Record<Viewport, { label: string; width: string }> = {
   mobile: { label: 'Móvil', width: '390px' },
 };
 
-export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: PreviewPanelProps) {
+export default function PreviewPanel({ html, buildOk, buildNote, fileCount, unsavedCount = 0 }: PreviewPanelProps) {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [refreshKey, setRefreshKey] = useState(0);
   const [errors, setErrors] = useState<PreviewError[]>([]);
@@ -139,6 +141,14 @@ export default function PreviewPanel({ html, buildOk, buildNote, fileCount }: Pr
         >
           ↗ Pestaña nueva
         </button>
+        {unsavedCount > 0 && (
+          <span
+            className="rounded-lg bg-amber-950 px-2 py-1 text-[11px] font-bold text-amber-300"
+            title="La vista previa ya incluye estos cambios sin guardar; guarda con Ctrl+S para fijarlos"
+          >
+            ● {unsavedCount} {unsavedCount === 1 ? 'cambio sin guardar' : 'cambios sin guardar'}
+          </span>
+        )}
         <span
           className={`ml-auto rounded-lg px-2 py-1 text-[11px] font-bold ${
             buildOk ? 'bg-emerald-950 text-emerald-300' : 'bg-amber-950 text-amber-300'
