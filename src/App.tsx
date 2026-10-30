@@ -8,6 +8,7 @@ import { extractBusinessName } from './templates';
 import { draftKey, pathsForProject, withoutDraft, withoutFiles, withoutProjectDrafts } from './editor/drafts';
 import { buildPreviewHtml } from './preview/buildPreviewHtml';
 import { downloadBlob, exportProjectZip, overlayDrafts } from './export/exportZip';
+import { snapshotBeforeSave } from './versions/snapshot';
 import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import PreviewPanel from './components/PreviewPanel';
@@ -366,11 +367,32 @@ export default function App() {
   const saveFile = useCallback(() => {
     if (!project || !activePath || !activeDraftKey || !(activeDraftKey in drafts)) return;
     const stamp = nowIso();
+    const draftContent = drafts[activeDraftKey];
+    const current = project.files.find((f) => f.path === activePath);
+    // Guardar un borrador idéntico a lo ya guardado no cambia nada: solo
+    // se limpia el indicador, sin tocar el proyecto ni crear una versión.
+    if (current && draftContent === current.content) {
+      setDrafts((prev) => withoutDraft(prev, project.id, activePath));
+      return;
+    }
+    const nextFiles = project.files.map((f) =>
+      f.path === activePath ? { ...f, content: draftContent, updatedAt: stamp } : f,
+    );
+    // Las ediciones manuales no creaban versión: solo el motor dejaba
+    // copia antes de cambiar archivos, así que guardar a mano y luego
+    // estropear el archivo no tenía vuelta atrás. Guardar ahora deja
+    // una copia del estado previo (igual que el motor), salvo que la
+    // última versión ya contenga exactamente ese estado.
+    const snapshot = snapshotBeforeSave(
+      project.files,
+      project.versions,
+      `Copia antes de guardar ${activePath}`,
+      stamp,
+    );
     setProject({
       ...project,
-      files: project.files.map((f) =>
-        f.path === activePath ? { ...f, content: drafts[activeDraftKey], updatedAt: stamp } : f,
-      ),
+      files: nextFiles,
+      versions: snapshot ? [...project.versions, snapshot] : project.versions,
       updatedAt: stamp,
     });
     setDrafts((prev) => withoutDraft(prev, project.id, activePath));
