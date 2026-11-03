@@ -103,10 +103,17 @@ export function overlayDrafts(
  * the previous version. Passing the drafts makes the export match
  * the editor; exporting does not save the drafts themselves, so the
  * dirty indicators stay until the user saves.
+ *
+ * By default the export refuses a project without index.html (a ZIP
+ * without an entry page is not a usable site). `requireIndex: false`
+ * lifts that rule for rescue backups: a project being deleted may
+ * legitimately have no index.html, and its remaining files are still
+ * worth preserving.
  */
 export async function exportProjectZip(
   project: Project,
   drafts: Record<string, string> = {},
+  options: { requireIndex?: boolean } = {},
 ): Promise<Blob> {
   const effectiveProject = { ...project, files: overlayDrafts(project.files, drafts, project.id) };
   const zip = new JSZip();
@@ -123,7 +130,7 @@ export async function exportProjectZip(
   );
   for (const f of files) addFile(f.path, f.content);
 
-  if (!seen.has('index.html')) {
+  if (options.requireIndex !== false && !seen.has('index.html')) {
     throw new Error('No se puede exportar: el proyecto no tiene index.html.');
   }
 

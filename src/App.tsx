@@ -49,6 +49,10 @@ export default function App() {
   const readyRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const draftsTimerRef = useRef<number | null>(null);
+  // Ids de proyectos ya eliminados: un guardado pendiente del proyecto
+  // borrado no debe resucitarlo en IndexedDB cuando se cambia al
+  // siguiente proyecto (ver flushBeforeSwitch).
+  const deletedIdsRef = useRef<Set<string>>(new Set());
   // False until the persisted drafts load succeeds. While false, no draft
   // sync runs: syncing the initial empty map before the load finished
   // would wipe the very drafts the reload is supposed to restore.
@@ -109,6 +113,9 @@ export default function App() {
   const persistNow = useCallback(() => {
     const latest = projectRef.current;
     if (!readyRef.current || !latest) return;
+    // Un proyecto ya eliminado no vuelve a guardarse: sin este guarda,
+    // cambiar al siguiente proyecto tras borrar resucitaría el borrado.
+    if (deletedIdsRef.current.has(latest.id)) return;
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -127,6 +134,17 @@ export default function App() {
         setStorageError(err instanceof Error ? err.message : 'No se pudo guardar'),
       );
   }, []);
+
+  // Vacía el guardado pendiente del proyecto activo ANTES de
+  // reemplazarlo en pantalla. El guardado tiene un debounce de 600 ms y
+  // cambiar de proyecto cancela ese temporizador: sin este vaciado, los
+  // cambios hechos justo antes del cambio (crear un archivo, borrarlo,
+  // restaurar una versión, un cambio del motor) se perdían en silencio.
+  // persistNow guarda el proyecto al que apunta projectRef, que todavía
+  // es el proyecto saliente en este punto.
+  const flushBeforeSwitch = useCallback(() => {
+    persistNow();
+  }, [persistNow]);
 
   // Always have the latest project available for the flush path.
   useEffect(() => {
@@ -199,6 +217,9 @@ export default function App() {
   }, [project, persistNow]);
 
   const selectProject = useCallback(async (id: string) => {
+    // Guardar lo pendiente del proyecto saliente antes de reemplazarlo:
+    // si no, el temporizador de 600 ms se cancela y esos cambios se pierden.
+    flushBeforeSwitch();
     try {
       const full = await storageRef.current.getProject(id);
       if (!full) return;
@@ -210,9 +231,12 @@ export default function App() {
     } catch (err) {
       setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
     }
-  }, []);
+  }, [flushBeforeSwitch]);
 
   const newProject = useCallback(() => {
+    // Igual que al cambiar de proyecto: vaciar lo pendiente del saliente
+    // antes de reemplazarlo, o esos cambios se pierden con el temporizador.
+    flushBeforeSwitch();
     const stamp = nowIso();
     const p: Project = {
       id: newId(),
@@ -229,13 +253,25 @@ export default function App() {
     // Drafts of other projects are kept (scoped per project id).
     setCenterTab('chat');
     setMobileView('chat');
-  }, []);
+  }, [flushBeforeSwitch]);
 
   const sendMessage = useCallback(
     async (text: string) => {
       if (!project || working) return;
       const clean = text.trim();
       if (!clean) return;
+
+      // El motor trabaja sobre esta foto del proyecto, pero el usuario
+      // puede cambiar de proyecto mientras genera. Aplicar el resultado
+      // a ciegas al final sobrescribiría en pantalla el proyecto que
+      // esté viendo entonces (y tiraría sus ediciones intermedias), así
+      // que el cierre de esta función comprueba projectRef antes de
+      // tocar la pantalla (ver el bloque final).
+      const targetId = project.id;
+      const snapshotName = project.name;
+      let revealCreatedPath: string | null = null;
+      let revealPreview = false;
+      let revealChat = false;
 
       let p: Project = {
         ...project,
@@ -325,11 +361,12 @@ export default function App() {
             updatedAt: stamp,
           };
           const firstCreated = result.ops.find((o) => o.kind === 'create_file');
-          if (firstCreated) setActivePath(firstCreated.path);
-          setCenterTab('chat');
+          if (firstCreated) revealCreatedPath = firstCreated.path;
+          revealChat = true;
           // On phones/tablets jump straight to the preview so the result is visible.
+          // (Se aplica solo si se sigue en este proyecto; ver el bloque final.)
           if (window.matchMedia('(max-width: 1023px)').matches) {
-            setMobileView('preview');
+            revealPreview = true;
           }
         }
       } catch (err) {
@@ -351,7 +388,47 @@ export default function App() {
         };
       }
 
-      setProject(p);
+      // Cierre: solo tocar la pantalla cuando se sigue en el proyecto
+      // sobre el que trabajó el motor. Si el usuario cambió de proyecto
+      // mientras generaba, el resultado va al registro guardado de ese
+      // proyecto (ahí estará cuando vuelva a él) en vez de aplastar el
+      // proyecto que está viendo, y nunca resucita un proyecto borrado
+      // entretanto. Los saltos de vista (archivo creado, chat, móvil a
+      // vista previa) también se aplican solo en el primer caso: antes
+      // el fin de una generación ajena te cambiaba de pestaña y de vista.
+      const current = projectRef.current;
+      if (current?.id === targetId) {
+        // Un renombrado hecho mientras el motor trabajaba debe sobrevivir:
+        // la foto del resultado aún trae el nombre viejo (el motor solo
+        // renombra un proyecto nuevo sin título, caso en el que el nombre
+        // en pantalla sigue igual que la foto y gana el nombre de p).
+        const finalProject = current.name !== snapshotName ? { ...p, name: current.name } : p;
+        setProject(finalProject);
+        if (revealCreatedPath) setActivePath(revealCreatedPath);
+        if (revealChat) setCenterTab('chat');
+        if (revealPreview) setMobileView('preview');
+      } else if (!deletedIdsRef.current.has(targetId)) {
+        try {
+          const stored = await storageRef.current.getProject(targetId);
+          if (stored && !deletedIdsRef.current.has(targetId)) {
+            const merged: Project = {
+              ...stored,
+              files: p.files,
+              messages: p.messages,
+              versions: p.versions,
+              generationStatus: p.generationStatus,
+              updatedAt: p.updatedAt,
+            };
+            await storageRef.current.saveProject(merged);
+            const meta = toMeta(merged);
+            setMetas((prev) => prev.map((m) => (m.id === meta.id ? meta : m)));
+          }
+        } catch (err) {
+          setStorageError(
+            err instanceof Error ? err.message : 'No se pudo guardar el resultado en el proyecto anterior',
+          );
+        }
+      }
       setWorking(false);
     },
     [project, working],
@@ -426,7 +503,22 @@ export default function App() {
       if (!project) return;
       const stamp = nowIso();
       const files = project.files.filter((f) => f.path !== path);
-      setProject({ ...project, files, updatedAt: stamp });
+      // Borrar era la única operación destructiva sin punto de retorno:
+      // el motor y el guardado manual ya dejan copia, pero eliminar un
+      // archivo no. Ahora se guarda el estado previo (con el archivo)
+      // para que restaurar esa versión lo devuelva.
+      const snapshot = snapshotBeforeSave(
+        project.files,
+        project.versions,
+        `Copia antes de eliminar ${path}`,
+        stamp,
+      );
+      setProject({
+        ...project,
+        files,
+        versions: snapshot ? [...project.versions, snapshot] : project.versions,
+        updatedAt: stamp,
+      });
       setDrafts((prev) => withoutDraft(prev, project.id, path));
       if (activePath === path) {
         setActivePath(files.some((f) => f.path === 'index.html') ? 'index.html' : (files[0]?.path ?? null));
@@ -473,13 +565,27 @@ export default function App() {
   );
 
   // ---- Project management ----
+  // Renombrar/duplicar leían la copia guardada en IndexedDB, no el
+  // proyecto en memoria: si el proyecto activo tenía cambios recientes
+  // (dentro del debounce de 600 ms o aún sin guardar), renombrar lo
+  // sobrescribía con la copia vieja y la edición se perdía en silencio.
+  // Para el proyecto activo se parte del estado en memoria y el guardado
+  // normal lo persiste; para los demás, la copia guardada es la única
+  // que existe y sigue siendo correcta.
   const renameProject = useCallback(
     async (id: string, name: string) => {
+      if (project?.id === id) {
+        const updated = { ...project, name, updatedAt: nowIso() };
+        setProject(updated);
+        setMetas((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, name, updatedAt: updated.updatedAt } : m)),
+        );
+        return;
+      }
       const full = await storageRef.current.getProject(id);
       if (!full) return;
       const updated = { ...full, name, updatedAt: nowIso() };
       await storageRef.current.saveProject(updated);
-      if (project?.id === id) setProject(updated);
       refreshMetas();
     },
     [project, refreshMetas],
@@ -487,13 +593,13 @@ export default function App() {
 
   const duplicateProject = useCallback(
     async (id: string) => {
-      const full = await storageRef.current.getProject(id);
-      if (!full) return;
       const stamp = nowIso();
+      const source = project?.id === id ? project : await storageRef.current.getProject(id);
+      if (!source) return;
       const copy: Project = {
-        ...full,
+        ...source,
         id: newId(),
-        name: `${full.name} (copy)`.slice(0, 80),
+        name: `${source.name} (copy)`.slice(0, 80),
         createdAt: stamp,
         updatedAt: stamp,
       };
@@ -501,12 +607,35 @@ export default function App() {
       refreshMetas();
       selectProject(copy.id);
     },
-    [refreshMetas, selectProject],
+    [project, refreshMetas, selectProject],
   );
 
   const confirmDeleteProject = useCallback(
     async (id: string) => {
+      // Borrar un proyecto era la última operación destructiva sin punto
+      // de retorno: eliminaba archivos, chat y versiones de IndexedDB y
+      // no quedaba nada. Antes de borrar, se descarga una copia ZIP de
+      // respaldo con lo que el editor muestra (borradores incluidos, sin
+      // exigir index.html). Si la copia falla, NO se borra nada: mejor
+      // un proyecto que sigue existiendo que uno perdido sin respaldo.
+      // Un proyecto sin archivos no necesita respaldo.
+      try {
+        const full = await storageRef.current.getProject(id);
+        if (full && full.files.length > 0) {
+          const blob = await exportProjectZip(full, draftsRef.current, { requireIndex: false });
+          const slug = full.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+          downloadBlob(blob, `${slug}-respaldo.zip`);
+        }
+      } catch (err) {
+        setExportError(
+          `No se pudo crear la copia de respaldo y el proyecto NO se eliminó: ${err instanceof Error ? err.message : 'error desconocido'}. Inténtalo de nuevo o exporta el ZIP a mano antes de borrar.`,
+        );
+        return;
+      }
       await storageRef.current.deleteProject(id);
+      // Marcarlo antes de cambiar al siguiente proyecto: el vaciado de
+      // selectProject no debe volver a guardar el proyecto borrado.
+      deletedIdsRef.current.add(id);
       setPendingDeleteId(null);
       const remaining = metas.filter((m) => m.id !== id);
       setMetas(remaining);
@@ -757,7 +886,7 @@ export default function App() {
       {pendingDeleteId && (
         <Modal
           title="¿Eliminar proyecto?"
-          message="Esto elimina permanentemente el proyecto, sus archivos, el historial del chat y las versiones. No se puede deshacer."
+          message="Antes de eliminarlo se descargará una copia de respaldo en ZIP con sus archivos (incluidos los cambios sin guardar). Si la copia falla, el proyecto no se elimina. El borrado en sí elimina permanentemente el proyecto, su historial del chat y las versiones."
           confirmLabel="Eliminar"
           danger
           onConfirm={() => confirmDeleteProject(pendingDeleteId)}
