@@ -65,7 +65,13 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [centerTab, setCenterTab] = useState<CenterTab>('chat');
   const [mobileView, setMobileView] = useState<MobileView>('chat');
-  const [working, setWorking] = useState(false);
+  // Proyectos con una generación en curso (por id, no un booleano global:
+  // antes, generar en un proyecto desactivaba el chat del proyecto que se
+  // estuviera viendo, aunque fuera otro). Un conjunto permite además que
+  // dos proyectos generen a la vez: cada uno trabaja sobre su propia foto
+  // y el cierre de sendMessage ya fusiona el resultado en el registro
+  // guardado si el usuario cambió de proyecto entretanto.
+  const [workingIds, setWorkingIds] = useState<string[]>([]);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -257,7 +263,7 @@ export default function App() {
 
   const sendMessage = useCallback(
     async (text: string) => {
-      if (!project || working) return;
+      if (!project || workingIds.includes(project.id)) return;
       const clean = text.trim();
       if (!clean) return;
 
@@ -279,7 +285,7 @@ export default function App() {
         generationStatus: 'working',
       };
       setProject(p);
-      setWorking(true);
+      setWorkingIds((prev) => (prev.includes(targetId) ? prev : [...prev, targetId]));
 
       try {
         const isNew = p.files.length === 0;
@@ -429,9 +435,11 @@ export default function App() {
           );
         }
       }
-      setWorking(false);
+      // Quitar solo este proyecto del conjunto: si otro proyecto empezó a
+      // generar entretanto, su indicador debe seguir activo.
+      setWorkingIds((prev) => prev.filter((id) => id !== targetId));
     },
-    [project, working],
+    [project, workingIds],
   );
 
   // ---- File editing ----
@@ -816,7 +824,7 @@ export default function App() {
                 <ChatPanel
                   projectName={project.name}
                   messages={project.messages}
-                  working={working}
+                  working={workingIds.includes(project.id)}
                   onSend={sendMessage}
                 />
               ) : (
