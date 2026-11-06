@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, Project, ProjectMeta, ProjectVersion } from './types';
+import type { ChatMessage, Project, ProjectFile, ProjectMeta, ProjectVersion } from './types';
+import type { FileOp } from './providers/Provider';
 import { newId, nowIso, toMeta } from './types';
 import { IndexedDBStorage } from './storage/IndexedDBStorage';
 import { DemoProvider } from './providers/DemoProvider';
@@ -22,6 +23,92 @@ type MobileView = 'projects' | 'chat' | 'code' | 'preview';
 
 const PATH_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const ALLOWED_EXT = ['.html', '.css', '.js', '.json', '.md', '.txt', '.svg'];
+
+/**
+ * Fusiona el resultado del motor con el estado ACTUAL de los archivos, en
+ * vez de imponer la foto tomada al enviar el mensaje.
+ *
+ * Mientras el motor genera, el usuario puede seguir editando el mismo
+ * proyecto (el chat es lo único que se desactiva): guardar a mano, crear
+ * o borrar un archivo. El cierre anterior aplicaba el resultado sobre la
+ * foto del envío y esas ediciones se perdían en silencio — el mismo fallo
+ * que las correcciones del 02 y 03-11 ya cerraron para cambiar/renombrar
+ * de proyecto y para el renombre durante la generación.
+ *
+ * - Las operaciones del motor se aplican sobre `baseFiles` (el estado en
+ *   pantalla o guardado en este momento), no sobre la foto.
+ * - Una operación que ya no encaja (crear un archivo que el usuario creó
+ *   entretanto, actualizar o borrar uno que ya borró) se salta y se avisa
+ *   en el chat; las demás se aplican igual.
+ * - La versión "antes del motor" guarda `baseFiles`, el estado real justo
+ *   antes de aplicar los cambios: si el motor sobrescribe un archivo que
+ *   el usuario editó entretanto, esa edición sigue siendo restaurable.
+ * - Los borradores solo se descartan para archivos que el motor cambió de
+ *   verdad: un borrador en un archivo cuya operación se saltó sobrevive.
+ */
+interface EngineMerge {
+  files: ProjectFile[];
+  versions: ProjectVersion[];
+  messages: ChatMessage[];
+  appliedPaths: string[];
+}
+
+function mergeEngineResult(
+  p: Project,
+  versionId: string,
+  summaryId: string | null,
+  ops: FileOp[],
+  baseFiles: ProjectFile[],
+  drafts: Record<string, string>,
+): EngineMerge {
+  const version = p.versions.find((v) => v.id === versionId);
+  const beforeFiles = version?.files ?? p.files;
+  const basePaths = new Set(baseFiles.map((f) => f.path));
+  const applicable = ops.filter((op) =>
+    op.kind === 'create_file' ? !basePaths.has(op.path) : basePaths.has(op.path),
+  );
+  const skipped = ops.filter((op) => !applicable.includes(op));
+  const mergedFiles = applyOps(baseFiles, applicable, p.updatedAt);
+  const versions = version
+    ? p.versions.map((v) =>
+        v.id === versionId ? { ...v, files: baseFiles.map((f) => ({ ...f })) } : v,
+      )
+    : p.versions;
+  const overwrittenPaths = applicable
+    .filter((op) => op.kind === 'update_file')
+    .map((op) => op.path)
+    .filter((path) => {
+      const now = baseFiles.find((f) => f.path === path);
+      const was = beforeFiles.find((f) => f.path === path);
+      return !!now && !!was && now.content !== was.content;
+    });
+  const appliedPaths = applicable.map((op) => op.path);
+  const discardedDrafts = appliedPaths.filter((path) => draftKey(p.id, path) in drafts);
+
+  const notes: string[] = [];
+  if (skipped.length > 0) {
+    notes.push(
+      `Nota: mientras el motor generaba editaste archivos y ${skipped.length === 1 ? 'este cambio ya no encajaba' : 'estos cambios ya no encajaban'}: ${skipped.map((o) => o.path).join(', ')}. No se aplicaron y tus ediciones se conservaron.`,
+    );
+  }
+  if (overwrittenPaths.length > 0) {
+    notes.push(
+      `Nota: habías editado ${overwrittenPaths.join(', ')} mientras generaba y el motor sobrescribió ${overwrittenPaths.length === 1 ? 'ese archivo' : 'esos archivos'}; tu versión quedó guardada en la v${version?.versionNumber ?? '?'} y puedes restaurarla desde Versiones.`,
+    );
+  }
+  if (discardedDrafts.length > 0) {
+    notes.push(
+      `Nota: tenías cambios sin guardar en ${discardedDrafts.join(', ')} y el motor acaba de modificar esos archivos, así que descarté esos borradores para no sobrescribir el cambio. Guarda antes de pedir cambios la próxima vez para conservar tus ediciones.`,
+    );
+  }
+  const messages =
+    notes.length > 0 && summaryId !== null
+      ? p.messages.map((m) =>
+          m.id === summaryId ? { ...m, content: m.content + '\n\n' + notes.join('\n\n') } : m,
+        )
+      : p.messages;
+  return { files: mergedFiles, versions, messages, appliedPaths };
+}
 
 function starterFor(name: string): string {
   if (name.endsWith('.html')) {
@@ -275,6 +362,11 @@ export default function App() {
       // tocar la pantalla (ver el bloque final).
       const targetId = project.id;
       const snapshotName = project.name;
+      // Datos del resultado del motor que el cierre necesita para fusionarlo
+      // con lo que el usuario haya editado mientras generaba.
+      let engineVersionId: string | null = null;
+      let engineSummaryId: string | null = null;
+      let engineOps: FileOp[] = [];
       let revealCreatedPath: string | null = null;
       let revealPreview = false;
       let revealChat = false;
@@ -318,15 +410,11 @@ export default function App() {
           p = { ...p, messages: [...p.messages, infoMsg], generationStatus: 'idle', updatedAt: stamp };
         } else {
           const nextFiles = applyOps(p.files, result.ops, stamp);
-          // The engine just replaced these files, so any unsaved draft
-          // for them is stale: keeping it would show old content in the
-          // editor and, on save, silently overwrite the engine's change.
-          // Discard only the touched files' drafts, and say so in the chat.
-          const touchedPaths = result.ops.map((o) => o.path);
-          const discardedDrafts = touchedPaths.filter(
-            (path) => draftKey(p.id, path) in draftsRef.current,
-          );
-          setDrafts((prev) => withoutFiles(prev, p.id, touchedPaths));
+          // El descarte de borradores y la fusión con ediciones hechas
+          // mientras generaba se hacen en el cierre (mergeEngineResult):
+          // ahí se sabe qué operaciones siguen encajando y qué borradores
+          // son de verdad obsoletos.
+          engineOps = result.ops;
           const version: ProjectVersion = {
             id: newId(),
             versionNumber: p.versions.length + 1,
@@ -348,11 +436,10 @@ export default function App() {
             kind: 'summary',
             content:
               result.summary +
-              (result.warnings.length > 0 ? '\n\nNote: ' + result.warnings.join(' ') : '') +
-              (discardedDrafts.length > 0
-                ? `\n\nNota: tenías cambios sin guardar en ${discardedDrafts.join(', ')} y el motor acaba de modificar esos archivos, así que descarté esos borradores para no sobrescribir el cambio. Guarda antes de pedir cambios la próxima vez para conservar tus ediciones.`
-                : ''),
+              (result.warnings.length > 0 ? '\n\nNote: ' + result.warnings.join(' ') : ''),
           };
+          engineVersionId = version.id;
+          engineSummaryId = summaryMsg.id;
           let name = p.name;
           if (isNew && name === 'Proyecto sin título') {
             name = `Sitio de ${extractBusinessName(clean)}`.slice(0, 80);
@@ -408,7 +495,29 @@ export default function App() {
         // la foto del resultado aún trae el nombre viejo (el motor solo
         // renombra un proyecto nuevo sin título, caso en el que el nombre
         // en pantalla sigue igual que la foto y gana el nombre de p).
-        const finalProject = current.name !== snapshotName ? { ...p, name: current.name } : p;
+        let finalProject = current.name !== snapshotName ? { ...p, name: current.name } : p;
+        if (engineVersionId !== null) {
+          // Igual que el nombre, las ediciones manuales hechas mientras
+          // generaba deben sobrevivir: fusionar las operaciones del motor
+          // sobre los archivos en pantalla, no imponer la foto del envío.
+          const merged = mergeEngineResult(
+            p,
+            engineVersionId,
+            engineSummaryId,
+            engineOps,
+            current.files,
+            draftsRef.current,
+          );
+          if (merged.appliedPaths.length > 0) {
+            setDrafts((prev) => withoutFiles(prev, targetId, merged.appliedPaths));
+          }
+          finalProject = {
+            ...finalProject,
+            files: merged.files,
+            versions: merged.versions,
+            messages: merged.messages,
+          };
+        }
         setProject(finalProject);
         if (revealCreatedPath) setActivePath(revealCreatedPath);
         if (revealChat) setCenterTab('chat');
@@ -417,11 +526,33 @@ export default function App() {
         try {
           const stored = await storageRef.current.getProject(targetId);
           if (stored && !deletedIdsRef.current.has(targetId)) {
+            // Igual que en pantalla: fusionar sobre lo guardado, porque el
+            // usuario pudo volver a este proyecto y editarlo mientras el
+            // motor seguía generando.
+            let files = p.files;
+            let versions = p.versions;
+            let messages = p.messages;
+            if (engineVersionId !== null) {
+              const mergedResult = mergeEngineResult(
+                p,
+                engineVersionId,
+                engineSummaryId,
+                engineOps,
+                stored.files,
+                draftsRef.current,
+              );
+              files = mergedResult.files;
+              versions = mergedResult.versions;
+              messages = mergedResult.messages;
+              if (mergedResult.appliedPaths.length > 0) {
+                setDrafts((prev) => withoutFiles(prev, targetId, mergedResult.appliedPaths));
+              }
+            }
             const merged: Project = {
               ...stored,
-              files: p.files,
-              messages: p.messages,
-              versions: p.versions,
+              files,
+              messages,
+              versions,
               generationStatus: p.generationStatus,
               updatedAt: p.updatedAt,
             };
