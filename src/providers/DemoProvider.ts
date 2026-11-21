@@ -45,6 +45,35 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Deriva el tono suave (--accent-soft) de un color hexadecimal nuevo:
+ * mezcla cada canal un 30% hacia el blanco. Es el mismo criterio que
+ * usan las plantillas (p. ej. acento #7c5cff → suave #9a82ff): el
+ * suave es el mismo matiz aclarado, no otro color.
+ *
+ * Devuelve null cuando el color no es hexadecimal (un nombre como
+ * "crimson" no se puede aclarar sin una tabla de colores): en ese
+ * caso el suave se conserva y el resumen lo dice.
+ * Acepta #rgb, #rrggbb y las variantes con alfa (#rgba, #rrggbbaa),
+ * de las que solo se usa la parte RGB — el suave siempre es opaco.
+ */
+function softenHex(color: string): string | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(color);
+  if (!m) return null;
+  let hex = m[1];
+  if (hex.length === 3 || hex.length === 4) {
+    hex = hex.slice(0, 3).split('').map((c) => c + c).join('');
+  } else {
+    hex = hex.slice(0, 6);
+  }
+  const out = [0, 2, 4]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16))
+    .map((v) => Math.round(v + (255 - v) * 0.3))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('');
+  return `#${out}`;
+}
+
 function insertBeforeAnchor(html: string, snippet: string): { html: string; where: string } {
   const anchors: Array<[RegExp, string]> = [
     [/<footer[\s>]/i, 'antes del pie de página'],
@@ -78,6 +107,24 @@ const SNIPPET_CSS = `
 .nf-who { color: var(--muted, #a7abb6); font-size: 0.9rem; margin-top: 10px; }
 @media (max-width: 860px) { .nf-grid { grid-template-columns: 1fr; } }
 `;
+
+/**
+ * Las secciones de precios y testimonios comparten este bloque de
+ * estilos (clases .nf-*). Antes, cada una lo añadía a styles.css sin
+ * mirar si ya estaba: pedir precios y luego testimonios dejaba el
+ * mismo bloque dos veces en el archivo — y cada sección nueva de la
+ * misma familia lo duplicaba otra vez. No rompía nada (las reglas
+ * repetidas son idénticas), pero engordaba el CSS del proyecto con
+ * copias exactas y ensuciaba el archivo que el usuario edita a mano.
+ * La sección de contacto ya evitaba esto comprobando `.nf-form`
+ * antes de añadir su propio CSS; aquí se aplica el mismo patrón con
+ * `.nf-section`, que solo define este bloque (ninguna plantilla lo
+ * trae). El plan del motor dice honestamente si los estilos ya
+ * estaban, igual que hace la rama de contacto.
+ */
+function hasSnippetCss(css: string): boolean {
+  return css.includes('.nf-section');
+}
 
 function pricingSnippet(): string {
   return `
@@ -129,7 +176,12 @@ function contactSnippet(): string {
           if (!form || !note) return;
           form.addEventListener('submit', function (e) {
             e.preventDefault();
-            var name = (form.name.value || '').trim();
+            // OJO: 'form.name' NO es el campo nombre — es el atributo
+            // 'name' del propio <form> (cadena vacía aquí), que ensombrece
+            // al control llamado "name". Leerlo por querySelector, como
+            // ya hacen email y message por el named getter.
+            var nameEl = form.querySelector('[name="name"]');
+            var name = (nameEl && nameEl.value || '').trim();
             var email = (form.email.value || '').trim();
             var msg = (form.message.value || '').trim();
             var emailOk = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
@@ -239,13 +291,22 @@ export class DemoProvider implements AIProvider {
       const { html: withSection, where } = insertBeforeAnchor(html.content, pricingSnippet());
       const ops: FileOp[] = [
         { kind: 'update_file', path: 'index.html', content: withSection },
-        { kind: 'update_file', path: 'styles.css', content: css.content + '\n' + SNIPPET_CSS },
       ];
+      const touched = ['index.html'];
+      const steps = [
+        'Construí una sección de precios de 3 niveles desde la librería demo.',
+        `La inserté ${where} en index.html.`,
+      ];
+      if (!hasSnippetCss(css.content)) {
+        ops.push({ kind: 'update_file', path: 'styles.css', content: css.content + '\n' + SNIPPET_CSS });
+        touched.push('styles.css');
+        steps.push('Agregué los estilos correspondientes a styles.css.');
+      } else {
+        steps.push('Los estilos de estas secciones ya estaban en styles.css, así que no los dupliqué.');
+      }
+      steps.push('Validé las operaciones.');
       return {
-        plan: {
-          steps: ['Construí una sección de precios de 3 niveles desde la librería demo.', `La inserté ${where} en index.html.`, 'Agregué los estilos correspondientes a styles.css.', 'Validé ambas operaciones.'],
-          manifest: ['index.html', 'styles.css'],
-        },
+        plan: { steps, manifest: touched },
         ops,
         summary: `Sección de precios agregada ${where}. Edita los planes y precios directamente en el editor para hacerlos tuyos.`,
         warnings: [],
@@ -264,13 +325,22 @@ export class DemoProvider implements AIProvider {
       const { html: withSection, where } = insertBeforeAnchor(html.content, testimonialsSnippet());
       const ops: FileOp[] = [
         { kind: 'update_file', path: 'index.html', content: withSection },
-        { kind: 'update_file', path: 'styles.css', content: css.content + '\n' + SNIPPET_CSS },
       ];
+      const touched = ['index.html'];
+      const steps = [
+        'Construí una sección de testimonios desde la librería demo.',
+        `La inserté ${where} en index.html.`,
+      ];
+      if (!hasSnippetCss(css.content)) {
+        ops.push({ kind: 'update_file', path: 'styles.css', content: css.content + '\n' + SNIPPET_CSS });
+        touched.push('styles.css');
+        steps.push('Agregué los estilos correspondientes a styles.css.');
+      } else {
+        steps.push('Los estilos de estas secciones ya estaban en styles.css, así que no los dupliqué.');
+      }
+      steps.push('Validé las operaciones.');
       return {
-        plan: {
-          steps: ['Construí una sección de testimonios desde la librería demo.', `La inserté ${where} en index.html.`, 'Agregué los estilos correspondientes a styles.css.', 'Validé ambas operaciones.'],
-          manifest: ['index.html', 'styles.css'],
-        },
+        plan: { steps, manifest: touched },
         ops,
         summary: `Sección de testimonios agregada ${where}. Reemplaza las opiniones de ejemplo con reales en el editor.`,
         warnings: [],
@@ -323,14 +393,30 @@ export class DemoProvider implements AIProvider {
       if (!/--accent\s*:/.test(css.content)) {
         return emptyResult('No encontré la variable --accent en styles.css.');
       }
-      const updated = css.content.replace(/--accent\s*:\s*[^;]+;/, `--accent: ${color};`);
+      let updated = css.content.replace(/--accent\s*:\s*[^;]+;/, `--accent: ${color};`);
+      // El tono suave es el mismo matiz aclarado: si solo cambia
+      // --accent, el sitio queda a dos tonos (p. ej. acento rojo con
+      // suaves morados en botones, precios y degradados). Con un color
+      // hexadecimal se deriva el suave del nuevo acento; con un nombre
+      // de color no se puede derivar, así que se conserva y se dice.
+      const soft = softenHex(color);
+      const steps = ['Localicé la variable CSS --accent en styles.css.', `La cambié a ${color}.`];
+      let softNote: string;
+      if (soft && /--accent-soft\s*:/.test(updated)) {
+        updated = updated.replace(/--accent-soft\s*:\s*[^;]+;/, `--accent-soft: ${soft};`);
+        steps.push(`Derivé el tono suave --accent-soft (${soft}) del nuevo acento.`);
+        softNote = `El tono suave quedó en ${soft}.`;
+      } else {
+        softNote = 'El tono suave --accent-soft quedó intacto (el color no es hexadecimal, así que no puedo derivarlo).';
+      }
+      steps.push('Validé la operación.');
       return {
         plan: {
-          steps: ['Localicé la variable CSS --accent en styles.css.', `La cambié a ${color}.`, 'Validé la operación.'],
+          steps,
           manifest: ['styles.css'],
         },
         ops: [{ kind: 'update_file', path: 'styles.css', content: updated }],
-        summary: `Color de acento cambiado a ${color}. (El tono suave --accent-soft quedó intacto.)`,
+        summary: `Color de acento cambiado a ${color}. ${softNote}`,
         warnings: [],
       };
     }
@@ -348,10 +434,17 @@ export class DemoProvider implements AIProvider {
         return emptyResult('No pude detectar el nombre actual del negocio desde la etiqueta <title>.');
       }
       const ops: FileOp[] = [];
+      // El nombre nuevo va a archivos HTML (título, logo, textos): se
+      // escapa igual que en instantiate() — sin esto, un nombre con `<`
+      // o `>` rompería la página o inyectaría marcado. El `current`
+      // leído del <title> ya viene escapado en el archivo, así que la
+      // sustitución compara la forma escapada con la forma escapada.
+      // El resumen del chat usa `next` sin escapar (React lo escapa).
+      const safeNext = escapeHtml(next);
       for (const f of files) {
         if (!/\.html?$/i.test(f.path)) continue;
         if (f.content.includes(current)) {
-          ops.push({ kind: 'update_file', path: f.path, content: f.content.split(current).join(next) });
+          ops.push({ kind: 'update_file', path: f.path, content: f.content.split(current).join(safeNext) });
         }
       }
       if (ops.length === 0) {

@@ -50,11 +50,33 @@ export function matchTemplate(prompt: string): Template {
 }
 
 /**
+ * Escape para HTML (texto y valores de atributo entre comillas dobles).
+ *
+ * El nombre del negocio se sustituye en {{NAME}} dentro de index.html:
+ * aparece en texto (<title>, logo, hero, pie) Y dentro de atributos
+ * (meta description content="..."). Sin escapar, un nombre con `<`, `>`
+ * o `&` rompe la página — por ejemplo `Café <b>Central</b>` se
+ * convertiría en una etiqueta <b> real dentro del logo — y un nombre
+ * con `</title><script>…` inyectaría código en la página generada y en
+ * el ZIP exportado. El cambio de título del motor ya escapaba (ver
+ * DemoProvider); aquí se aplica el mismo criterio al nombre.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
  * Replace the {{NAME}} placeholder with the project's business name.
  * The placeholder is the only substitution the demo engine performs.
+ * The name is HTML-escaped: it lands in text nodes and in attribute
+ * values, so raw `<`, `>`, `&` or `"` would corrupt the generated page.
  */
 export function instantiate(template: Template, businessName: string): TemplateFile[] {
-  const safe = businessName.trim().slice(0, 60) || 'Mi negocio';
+  const safe = escapeHtml(businessName.trim().slice(0, 60) || 'Mi negocio');
   return template.files.map((f) => ({
     path: f.path,
     content: f.content.split('{{NAME}}').join(safe),

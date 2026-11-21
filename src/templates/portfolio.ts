@@ -328,7 +328,11 @@ const appJs = `(function () {
   if (form && note) {
     form.addEventListener("submit", function (e) {
       e.preventDefault();
-      var name = form.name.value.trim();
+      // 'form.name' es el atributo name del propio <form> (cadena vacía),
+      // no el campo nombre — el atributo IDL ensombrece al control. Por
+      // querySelector sí se lee el campo.
+      var nameEl = form.querySelector('[name="name"]');
+      var name = nameEl ? nameEl.value.trim() : '';
       var email = form.email.value.trim();
       var msg = form.message.value.trim();
       var emailOk = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);

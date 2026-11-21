@@ -287,13 +287,24 @@ const appJs = `(function () {
   var note = document.getElementById("formNote");
   if (form && note) {
     var dateInput = form.date;
+    // Fecha LOCAL de hoy, no UTC: toISOString() devuelve la fecha en
+    // UTC, y desde las 16:00 en Los Ángeles (UTC-8) ya es mañana en UTC
+    // — el date picker no ofrecía "hoy" y reservar para esta noche se
+    // rechazaba como "fecha pasada". getFullYear/getMonth/getDate leen
+    // la fecha en la zona horaria del visitante.
     var today = new Date();
-    var iso = today.toISOString().slice(0, 10);
+    var iso = today.getFullYear() + "-" +
+      String(today.getMonth() + 1).padStart(2, "0") + "-" +
+      String(today.getDate()).padStart(2, "0");
     if (dateInput) dateInput.min = iso;
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
-      var name = form.name.value.trim();
+      // 'form.name' es el atributo name del propio <form> (cadena vacía),
+      // no el campo nombre — el atributo IDL ensombrece al control. Por
+      // querySelector sí se lee el campo.
+      var nameEl = form.querySelector('[name="name"]');
+      var name = nameEl ? nameEl.value.trim() : '';
       var phone = form.phone.value.trim();
       var date = form.date.value;
       var time = form.time.value;

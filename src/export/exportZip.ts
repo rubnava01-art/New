@@ -5,8 +5,15 @@ import { draftKey } from '../editor/drafts';
 /** File names that must never leave the app inside an export. */
 const SECRET_PATTERNS = [/^\.env/i, /secret/i, /token/i, /private[_-]?key/i, /\.pem$/i];
 
-function isExportable(path: string): boolean {
-  return !SECRET_PATTERNS.some((re) => re.test(path));
+/**
+ * Whether a file may leave the app in a ZIP. `includeSecrets` lifts the
+ * filter: it exists only for the delete-rescue backup (see
+ * exportProjectZip), where excluding a file means losing it forever —
+ * a user export that will be shared keeps the filter, so a stray
+ * `token.txt` never leaks into a ZIP that leaves the machine.
+ */
+function isExportable(path: string, includeSecrets = false): boolean {
+  return includeSecrets || !SECRET_PATTERNS.some((re) => re.test(path));
 }
 
 function slugify(name: string): string {
@@ -19,9 +26,9 @@ function slugify(name: string): string {
   );
 }
 
-function exportReadme(project: Project): string {
+function exportReadme(project: Project, includeSecrets = false): string {
   const fileList = project.files
-    .filter((f) => isExportable(f.path))
+    .filter((f) => isExportable(f.path, includeSecrets))
     .map((f) => `- \`${f.path}\``)
     .join('\n');
   return `# ${project.name}
@@ -109,18 +116,27 @@ export function overlayDrafts(
  * lifts that rule for rescue backups: a project being deleted may
  * legitimately have no index.html, and its remaining files are still
  * worth preserving.
+ *
+ * `includeSecrets: true` lifts the secret-name filter as well, and is
+ * meant ONLY for that same rescue backup: the delete flow downloads
+ * the ZIP as the project's last copy before wiping it from IndexedDB,
+ * so a file the filter would drop (e.g. `token.txt`, `secret.md`,
+ * `private-key.json` — all creatable from the file explorer) would be
+ * lost forever with nothing left to restore from. A rescue backup goes
+ * to the user's own machine, not to anyone else, so completeness beats
+ * the leak protection that a shareable export keeps.
  */
 export async function exportProjectZip(
   project: Project,
   drafts: Record<string, string> = {},
-  options: { requireIndex?: boolean } = {},
+  options: { requireIndex?: boolean; includeSecrets?: boolean } = {},
 ): Promise<Blob> {
   const effectiveProject = { ...project, files: overlayDrafts(project.files, drafts, project.id) };
   const zip = new JSZip();
   const seen = new Set<string>();
 
   const addFile = (path: string, content: string) => {
-    if (!isExportable(path) || seen.has(path)) return;
+    if (!isExportable(path, options.includeSecrets) || seen.has(path)) return;
     seen.add(path);
     zip.file(path, content);
   };
@@ -134,7 +150,7 @@ export async function exportProjectZip(
     throw new Error('No se puede exportar: el proyecto no tiene index.html.');
   }
 
-  addFile('README.md', exportReadme(effectiveProject));
+  addFile('README.md', exportReadme(effectiveProject, options.includeSecrets));
   addFile('package.json', exportPackageJson(effectiveProject));
 
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });

@@ -6,10 +6,10 @@ import { IndexedDBStorage } from './storage/IndexedDBStorage';
 import { DemoProvider } from './providers/DemoProvider';
 import { applyOps, validateOps } from './providers/validateOps';
 import { extractBusinessName } from './templates';
-import { draftKey, pathsForProject, withoutDraft, withoutFiles, withoutProjectDrafts } from './editor/drafts';
+import { draftKey, pathsForProject, copyProjectDrafts, withoutDraft, withoutFiles, withoutProjectDrafts, readDraftsMirror, writeDraftsMirror, mergeDrafts } from './editor/drafts';
 import { buildPreviewHtml } from './preview/buildPreviewHtml';
 import { downloadBlob, exportProjectZip, overlayDrafts } from './export/exportZip';
-import { snapshotBeforeSave } from './versions/snapshot';
+import { snapshotBeforeSave, appendVersion, nextVersionNumber } from './versions/snapshot';
 import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import PreviewPanel from './components/PreviewPanel';
@@ -45,6 +45,14 @@ const ALLOWED_EXT = ['.html', '.css', '.js', '.json', '.md', '.txt', '.svg'];
  *   el usuario editó entretanto, esa edición sigue siendo restaurable.
  * - Los borradores solo se descartan para archivos que el motor cambió de
  *   verdad: un borrador en un archivo cuya operación se saltó sobrevive.
+ * - Las versiones y los mensajes VIVOS se conservan, no se imponen los
+ *   de la foto: un guardado a mano, un borrado o una restauración hechos
+ *   mientras generaba crean versiones (y la restauración un mensaje) que
+ *   el cierre anterior tiraba al reemplazar la lista por la de la foto.
+ *   La versión del motor se añade AL FINAL de la lista viva — es el
+ *   punto de retorno más reciente (su contenido es el estado justo antes
+ *   de aplicar los cambios) — así su número es siempre el siguiente y
+ *   nunca choca con el de una versión creada entretanto.
  */
 interface EngineMerge {
   files: ProjectFile[];
@@ -59,6 +67,8 @@ function mergeEngineResult(
   summaryId: string | null,
   ops: FileOp[],
   baseFiles: ProjectFile[],
+  liveVersions: ProjectVersion[],
+  liveMessages: ChatMessage[],
   drafts: Record<string, string>,
 ): EngineMerge {
   const version = p.versions.find((v) => v.id === versionId);
@@ -69,11 +79,22 @@ function mergeEngineResult(
   );
   const skipped = ops.filter((op) => !applicable.includes(op));
   const mergedFiles = applyOps(baseFiles, applicable, p.updatedAt);
-  const versions = version
-    ? p.versions.map((v) =>
-        v.id === versionId ? { ...v, files: baseFiles.map((f) => ({ ...f })) } : v,
-      )
-    : p.versions;
+  // La versión del motor va al final de la lista viva (ver el comentario
+  // del encabezado): nunca se tira una versión creada entretanto ni se
+  // renumeran las que el usuario ya vio en el panel.
+  const existingEngineVersion = liveVersions.find((v) => v.id === versionId);
+  // El número es uno más que la última versión viva (no length + 1:
+  // el historial tiene tope y length deja de crecer al podar, ver
+  // versions/snapshot.ts), así que nunca choca con el de una versión
+  // creada entretanto ni se reutiliza el de una ya podada.
+  const finalVersionNumber = existingEngineVersion?.versionNumber ?? nextVersionNumber(liveVersions);
+  const versions = !version
+    ? liveVersions
+    : existingEngineVersion
+      ? liveVersions.map((v) =>
+          v.id === versionId ? { ...v, files: baseFiles.map((f) => ({ ...f })) } : v,
+        )
+      : appendVersion(liveVersions, { ...version, versionNumber: finalVersionNumber, files: baseFiles.map((f) => ({ ...f })) });
   const overwrittenPaths = applicable
     .filter((op) => op.kind === 'update_file')
     .map((op) => op.path)
@@ -93,7 +114,7 @@ function mergeEngineResult(
   }
   if (overwrittenPaths.length > 0) {
     notes.push(
-      `Nota: habías editado ${overwrittenPaths.join(', ')} mientras generaba y el motor sobrescribió ${overwrittenPaths.length === 1 ? 'ese archivo' : 'esos archivos'}; tu versión quedó guardada en la v${version?.versionNumber ?? '?'} y puedes restaurarla desde Versiones.`,
+      `Nota: habías editado ${overwrittenPaths.join(', ')} mientras generaba y el motor sobrescribió ${overwrittenPaths.length === 1 ? 'ese archivo' : 'esos archivos'}; tu versión quedó guardada en la v${finalVersionNumber} y puedes restaurarla desde Versiones.`,
     );
   }
   if (discardedDrafts.length > 0) {
@@ -101,12 +122,17 @@ function mergeEngineResult(
       `Nota: tenías cambios sin guardar en ${discardedDrafts.join(', ')} y el motor acaba de modificar esos archivos, así que descarté esos borradores para no sobrescribir el cambio. Guarda antes de pedir cambios la próxima vez para conservar tus ediciones.`,
     );
   }
-  const messages =
-    notes.length > 0 && summaryId !== null
-      ? p.messages.map((m) =>
-          m.id === summaryId ? { ...m, content: m.content + '\n\n' + notes.join('\n\n') } : m,
-        )
-      : p.messages;
+  // Los mensajes vivos se conservan (una restauración hecha mientras
+  // generaba añade uno) y solo se agregan los del motor que aún no están
+  // — el plan y el resumen — en vez de imponer la lista de la foto.
+  const liveMessageIds = new Set(liveMessages.map((m) => m.id));
+  const engineMessages = p.messages.filter((m) => !liveMessageIds.has(m.id));
+  let messages = [...liveMessages, ...engineMessages];
+  if (notes.length > 0 && summaryId !== null) {
+    messages = messages.map((m) =>
+      m.id === summaryId ? { ...m, content: m.content + '\n\n' + notes.join('\n\n') } : m,
+    );
+  }
   return { files: mergedFiles, versions, messages, appliedPaths };
 }
 
@@ -134,12 +160,18 @@ export default function App() {
   const storageRef = useRef(new IndexedDBStorage());
   const providerRef = useRef(new DemoProvider());
   const readyRef = useRef(false);
-  const saveTimerRef = useRef<number | null>(null);
   const draftsTimerRef = useRef<number | null>(null);
   // Ids de proyectos ya eliminados: un guardado pendiente del proyecto
   // borrado no debe resucitarlo en IndexedDB cuando se cambia al
   // siguiente proyecto (ver flushBeforeSwitch).
   const deletedIdsRef = useRef<Set<string>>(new Set());
+  // Número de secuencia de la selección de proyecto: dos toques rápidos
+  // en la lista lanzan dos lecturas asíncronas en IndexedDB y la primera
+  // puede resolverse DESPUÉS que la segunda, abriendo el proyecto
+  // equivocado — y las ediciones irían a parar a ese proyecto. Solo la
+  // selección más reciente aplica su resultado; las anteriores se
+  // descartan al resolverse.
+  const selectSeqRef = useRef(0);
   // False until the persisted drafts load succeeds. While false, no draft
   // sync runs: syncing the initial empty map before the load finished
   // would wipe the very drafts the reload is supposed to restore.
@@ -188,7 +220,10 @@ export default function App() {
         }
         // Restore unsaved edits from the previous session. If this fails,
         // draftsReadyRef stays false so no sync can wipe the persisted set.
-        setDrafts(await storageRef.current.getDrafts());
+        // El espejo síncrono de localStorage rescata los borradores que
+        // IndexedDB no llegó a sincronizar antes de cerrar la pestaña
+        // (debounce de 600 ms): ver editor/drafts.ts.
+        setDrafts(mergeDrafts(await storageRef.current.getDrafts(), readDraftsMirror()));
         draftsReadyRef.current = true;
       } catch (err) {
         setStorageError(err instanceof Error ? err.message : 'Error de almacenamiento');
@@ -199,20 +234,20 @@ export default function App() {
     })();
   }, []);
 
-  // Debounced persistence of the active project, with a flush path.
-  // The 600ms debounce alone can lose the latest changes if the tab is
-  // closed or backgrounded before the timer fires, so the latest project is
-  // also pushed to IndexedDB immediately on pagehide / when the tab hides.
+  // Persistencia del proyecto activo, con un camino de vaciado.
+  // Antes era con debounce de 600 ms: el temporizador era la única
+  // red si la pestaña se cerraba antes de que disparara, y el vaciado
+  // asíncrono de pagehide no tiene garantizado completarse (el
+  // navegador puede descartar la página con la transacción IndexedDB
+  // a medias). Ahora el efecto de abajo guarda en cuanto cambia el
+  // proyecto (ver ahí el porqué); este vaciado queda como red de
+  // seguridad para una escritura aún en vuelo.
   const persistNow = useCallback(() => {
     const latest = projectRef.current;
     if (!readyRef.current || !latest) return;
     // Un proyecto ya eliminado no vuelve a guardarse: sin este guarda,
     // cambiar al siguiente proyecto tras borrar resucitaría el borrado.
     if (deletedIdsRef.current.has(latest.id)) return;
-    if (saveTimerRef.current !== null) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
     storageRef.current
       .saveProject(latest)
       .then(() => {
@@ -229,12 +264,11 @@ export default function App() {
   }, []);
 
   // Vacía el guardado pendiente del proyecto activo ANTES de
-  // reemplazarlo en pantalla. El guardado tiene un debounce de 600 ms y
-  // cambiar de proyecto cancela ese temporizador: sin este vaciado, los
-  // cambios hechos justo antes del cambio (crear un archivo, borrarlo,
-  // restaurar una versión, un cambio del motor) se perdían en silencio.
-  // persistNow guarda el proyecto al que apunta projectRef, que todavía
-  // es el proyecto saliente en este punto.
+  // reemplazarlo en pantalla. El guardado ya es inmediato (ver el
+  // efecto de persistencia), así que normalmente no hay nada
+  // pendiente; este vaciado cubre la escritura que aún esté en vuelo
+  // en el momento del cambio. persistNow guarda el proyecto al que
+  // apunta projectRef, que todavía es el proyecto saliente en este punto.
   const flushBeforeSwitch = useCallback(() => {
     persistNow();
   }, [persistNow]);
@@ -267,6 +301,12 @@ export default function App() {
 
   useEffect(() => {
     if (!draftsReadyRef.current) return;
+    // Espejo SÍNCRONO en localStorage (ver editor/drafts.ts): se escribe
+    // en cada cambio, sin esperar al debounce de IndexedDB, así que
+    // cerrar la pestaña dentro de esos 600 ms ya no pierde lo tecleado.
+    // El vaciado de pagehide sigue cubriendo la escritura de IndexedDB
+    // aún en vuelo, pero los borradores ya no dependen de que complete.
+    writeDraftsMirror(drafts);
     draftsTimerRef.current = window.setTimeout(persistDraftsNow, 600);
     return () => {
       if (draftsTimerRef.current !== null) {
@@ -276,8 +316,12 @@ export default function App() {
     };
   }, [drafts, persistDraftsNow]);
 
-  // Flush pending changes when the page is hidden or unloaded so the last
-  // 600ms of work is never silently lost.
+  // Flush pending changes when the page is hidden or unloaded. El
+  // proyecto ya se guarda en cuanto cambia (efecto de abajo), y los
+  // borradores ya tienen su espejo síncrono en localStorage (efecto de
+  // persistencia de borradores), así que este vaciado cubre sobre todo
+  // la escritura de IndexedDB aún en vuelo — de proyecto o de
+  // borradores — no la única copia de nada.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
@@ -297,24 +341,37 @@ export default function App() {
     };
   }, [persistNow, persistDraftsNow]);
 
-  // Debounced persistence of the active project.
+  // Persistencia INMEDIATA del proyecto activo, sin debounce.
+  // Los cambios de proyecto son acciones discretas (guardar, crear o
+  // borrar un archivo, restaurar una versión, renombrar, resultado del
+  // motor), no pulsaciones de teclas: el debounce de 600 ms no
+  // ahorraba nada y dejaba una ventana en la que cerrar la pestaña
+  // perdía el último cambio si el vaciado asíncrono de pagehide se
+  // cortaba (el navegador no garantiza que una transacción IndexedDB
+  // iniciada ahí se complete). Con el guardado inmediato esa ventana
+  // se cierra: lo guardado ya no va nunca 600 ms por detrás de la
+  // pantalla — la causa raíz de las correcciones del 02, 12 y 13-11,
+  // que ahora quedan como defensa en profundidad, no como único
+  // sostén. Los borradores sí conservan su debounce de 600 ms: ahí
+  // cada tecla es un cambio y el vaciado de pagehide sigue
+  // cubriéndolos.
   useEffect(() => {
     if (!readyRef.current || !project) return;
-    saveTimerRef.current = window.setTimeout(persistNow, 600);
-    return () => {
-      if (saveTimerRef.current !== null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-    };
+    persistNow();
   }, [project, persistNow]);
 
   const selectProject = useCallback(async (id: string) => {
-    // Guardar lo pendiente del proyecto saliente antes de reemplazarlo:
-    // si no, el temporizador de 600 ms se cancela y esos cambios se pierden.
+    // Vaciar el guardado del proyecto saliente antes de reemplazarlo
+    // (red de seguridad: el guardado ya es inmediato, pero una
+    // escritura aún en vuelo no debe quedarse atrás).
     flushBeforeSwitch();
+    const seq = ++selectSeqRef.current;
     try {
       const full = await storageRef.current.getProject(id);
+      // Una selección más reciente ganó entretanto: ignorar este
+      // resultado aunque haya llegado tarde, o abriría el proyecto
+      // equivocado (ver selectSeqRef).
+      if (seq !== selectSeqRef.current) return;
       if (!full) return;
       setProject(full);
       // Drafts are scoped per project now: switching projects no longer
@@ -327,8 +384,9 @@ export default function App() {
   }, [flushBeforeSwitch]);
 
   const newProject = useCallback(() => {
-    // Igual que al cambiar de proyecto: vaciar lo pendiente del saliente
-    // antes de reemplazarlo, o esos cambios se pierden con el temporizador.
+    // Igual que al cambiar de proyecto: vaciar el guardado del
+    // saliente antes de reemplazarlo (red de seguridad sobre el
+    // guardado inmediato).
     flushBeforeSwitch();
     const stamp = nowIso();
     const p: Project = {
@@ -417,7 +475,7 @@ export default function App() {
           engineOps = result.ops;
           const version: ProjectVersion = {
             id: newId(),
-            versionNumber: p.versions.length + 1,
+            versionNumber: nextVersionNumber(p.versions),
             files: p.files.map((f) => ({ ...f })),
             createdAt: stamp,
             changeSummary: result.summary.slice(0, 220),
@@ -448,7 +506,7 @@ export default function App() {
             ...p,
             name,
             files: nextFiles,
-            versions: [...p.versions, version],
+            versions: appendVersion(p.versions, version),
             messages: [...p.messages, planMsg, summaryMsg],
             generationStatus: 'idle',
             updatedAt: stamp,
@@ -506,6 +564,8 @@ export default function App() {
             engineSummaryId,
             engineOps,
             current.files,
+            current.versions,
+            current.messages,
             draftsRef.current,
           );
           if (merged.appliedPaths.length > 0) {
@@ -516,6 +576,21 @@ export default function App() {
             files: merged.files,
             versions: merged.versions,
             messages: merged.messages,
+          };
+        } else {
+          // Sin cambios de archivos (error o respuesta informativa): el
+          // cierre anterior imponía la foto del envío y tiraba las
+          // ediciones hechas mientras generaba (guardados, borrados,
+          // restauraciones con sus versiones y mensajes). Conservar lo
+          // vivo en pantalla y solo añadir el mensaje del motor.
+          const newMessages = p.messages.filter(
+            (m) => !current.messages.some((cm) => cm.id === m.id),
+          );
+          finalProject = {
+            ...finalProject,
+            files: current.files,
+            versions: current.versions,
+            messages: [...current.messages, ...newMessages],
           };
         }
         setProject(finalProject);
@@ -539,6 +614,8 @@ export default function App() {
                 engineSummaryId,
                 engineOps,
                 stored.files,
+                stored.versions,
+                stored.messages,
                 draftsRef.current,
               );
               files = mergedResult.files;
@@ -547,9 +624,29 @@ export default function App() {
               if (mergedResult.appliedPaths.length > 0) {
                 setDrafts((prev) => withoutFiles(prev, targetId, mergedResult.appliedPaths));
               }
+            } else {
+              // Error o respuesta informativa: no hay cambios de archivos,
+              // así que conservar lo guardado (el usuario pudo volver a
+              // este proyecto y editarlo mientras generaba) y solo añadir
+              // el mensaje del motor, igual que en pantalla.
+              files = stored.files;
+              versions = stored.versions;
+              const newMessages = p.messages.filter(
+                (m) => !stored.messages.some((sm) => sm.id === m.id),
+              );
+              messages = [...stored.messages, ...newMessages];
             }
+            // Igual que en pantalla: un renombrado hecho mientras el motor
+            // trabajaba debe sobrevivir (gana el nombre guardado si cambió);
+            // si el proyecto sigue con el nombre de la foto, gana el nombre
+            // automático del motor ("Sitio de …"). Antes, `...stored`
+            // imponía "Proyecto sin título" en IndexedDB aunque el motor
+            // ya lo hubiera renombrado, y al volver al proyecto la lista
+            // lo mostraba sin título pese a tener contenido.
+            const name = stored.name !== snapshotName ? stored.name : p.name;
             const merged: Project = {
               ...stored,
+              name,
               files,
               messages,
               versions,
@@ -608,7 +705,7 @@ export default function App() {
     setProject({
       ...project,
       files: nextFiles,
-      versions: snapshot ? [...project.versions, snapshot] : project.versions,
+      versions: snapshot ? appendVersion(project.versions, snapshot) : project.versions,
       updatedAt: stamp,
     });
     setDrafts((prev) => withoutDraft(prev, project.id, activePath));
@@ -655,7 +752,7 @@ export default function App() {
       setProject({
         ...project,
         files,
-        versions: snapshot ? [...project.versions, snapshot] : project.versions,
+        versions: snapshot ? appendVersion(project.versions, snapshot) : project.versions,
         updatedAt: stamp,
       });
       setDrafts((prev) => withoutDraft(prev, project.id, path));
@@ -675,7 +772,7 @@ export default function App() {
       const stamp = nowIso();
       const snapshot: ProjectVersion = {
         id: newId(),
-        versionNumber: project.versions.length + 1,
+        versionNumber: nextVersionNumber(project.versions),
         files: project.files.map((f) => ({ ...f })),
         createdAt: stamp,
         changeSummary: `Copia de seguridad antes de restaurar la v${v.versionNumber}`,
@@ -690,7 +787,7 @@ export default function App() {
       setProject({
         ...project,
         files: v.files.map((f) => ({ ...f })),
-        versions: [...project.versions, snapshot],
+        versions: appendVersion(project.versions, snapshot),
         messages: [...project.messages, msg],
         updatedAt: stamp,
       });
@@ -706,11 +803,13 @@ export default function App() {
   // ---- Project management ----
   // Renombrar/duplicar leían la copia guardada en IndexedDB, no el
   // proyecto en memoria: si el proyecto activo tenía cambios recientes
-  // (dentro del debounce de 600 ms o aún sin guardar), renombrar lo
-  // sobrescribía con la copia vieja y la edición se perdía en silencio.
-  // Para el proyecto activo se parte del estado en memoria y el guardado
-  // normal lo persiste; para los demás, la copia guardada es la única
-  // que existe y sigue siendo correcta.
+  // aún no persistidos, renombrar lo sobrescribía con la copia vieja y
+  // la edición se perdía en silencio. Para el proyecto activo se parte
+  // del estado en memoria y el guardado normal lo persiste; para los
+  // demás, la copia guardada es la única que existe y sigue siendo
+  // correcta. (Con el guardado inmediato del proyecto, la copia
+  // guardada ya casi nunca va por detrás; el estado en memoria sigue
+  // siendo el más reciente por definición.)
   const renameProject = useCallback(
     async (id: string, name: string) => {
       if (project?.id === id) {
@@ -741,7 +840,22 @@ export default function App() {
         name: `${source.name} (copy)`.slice(0, 80),
         createdAt: stamp,
         updatedAt: stamp,
+        // Una copia no está generando: si el original estaba en plena
+        // generación, heredar 'working' dejaría un estado obsoleto que
+        // nada volvería a actualizar (el cierre del motor apunta al id
+        // original y la copia nunca entra en workingIds).
+        generationStatus: 'idle',
       };
+      // Los borradores no viven en el registro del proyecto, así que
+      // copiar solo el registro dejaba la copia con el contenido
+      // guardado y perdía los cambios sin guardar — del todo si luego se
+      // borraba el original, porque borrar un proyecto borra sus
+      // borradores. La copia hereda los borradores del original (que
+      // los conserva); también cubre duplicar un proyecto que no está
+      // abierto pero tiene borradores persistidos de otra sesión.
+      if (pathsForProject(draftsRef.current, source.id).length > 0) {
+        setDrafts((prev) => copyProjectDrafts(prev, source.id, copy.id));
+      }
       await storageRef.current.saveProject(copy);
       refreshMetas();
       selectProject(copy.id);
@@ -759,9 +873,27 @@ export default function App() {
       // un proyecto que sigue existiendo que uno perdido sin respaldo.
       // Un proyecto sin archivos no necesita respaldo.
       try {
-        const full = await storageRef.current.getProject(id);
+        // El respaldo se construye desde el proyecto en memoria cuando se
+        // borra el proyecto activo: la copia guardada en IndexedDB puede
+        // ir por detrás si el último guardado aún está en vuelo, así que
+        // un guardado manual o un archivo creado justo antes de confirmar
+        // el borrado no estarían en ella — y el borrador ya se limpió al
+        // guardar, así que ni la superposición de borradores lo
+        // rescataría: el ZIP prometería una copia completa y el contenido
+        // nuevo se perdería para siempre al borrar. El estado en memoria
+        // es siempre el más reciente (mismo patrón que renameProject y
+        // duplicateProject). Para los demás proyectos la copia guardada
+        // es la única que existe y sigue siendo correcta.
+        const full =
+          project?.id === id ? project : await storageRef.current.getProject(id);
         if (full && full.files.length > 0) {
-          const blob = await exportProjectZip(full, draftsRef.current, { requireIndex: false });
+          // Respaldo COMPLETO: includeSecrets levanta el filtro de
+          // nombres sensibles, porque esta copia es la última que queda
+          // del proyecto — un archivo como token.txt o secret.md que el
+          // filtro dejara fuera se perdería para siempre al borrar, sin
+          // versiones ni nada que lo restaure. La exportación normal del
+          // usuario mantiene el filtro (ese ZIP sí puede compartirse).
+          const blob = await exportProjectZip(full, draftsRef.current, { requireIndex: false, includeSecrets: true });
           const slug = full.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
           downloadBlob(blob, `${slug}-respaldo.zip`);
         }
@@ -914,6 +1046,7 @@ export default function App() {
           <Sidebar
             projects={metas}
             activeId={project?.id ?? null}
+            workingIds={workingIds}
             onNew={newProject}
             onSelect={(id) => { selectProject(id); setMobileView('chat'); }}
             onRename={renameProject}
@@ -923,7 +1056,19 @@ export default function App() {
         </div>
 
         {/* Center: chat / files / versions */}
+        {/* La clave es el proyecto abierto: el estado local de estos
+            paneles (borrador del chat, nombre de archivo nuevo,
+            confirmación de borrado o de restauración) pertenece a un
+            proyecto y no debe sobrevivir al cambio. Sin ella, escribir
+            un mensaje en el proyecto A, tocar el proyecto B y pulsar
+            Enviar ejecutaba la generación sobre B y modificaba sus
+            archivos — el mismo error de "acción en el proyecto
+            equivocado" que las correcciones del 02 al 09-11 cerraron
+            para carreras y fusiones, pero este ocurría siempre, sin
+            doble toque. Renombrar no cambia el id, así que no borra
+            un borrador a medio escribir. */}
         <div
+          key={project?.id ?? 'sin-proyecto'}
           className={`${mobileView === 'chat' || mobileView === 'code' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col border-r border-[#2a2d36] lg:flex`}
         >
           <div className="flex items-center gap-1 border-b border-[#2a2d36] px-3 py-2">

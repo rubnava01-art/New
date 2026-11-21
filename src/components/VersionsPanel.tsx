@@ -25,8 +25,8 @@ export default function VersionsPanel({ versions, onRestore }: VersionsPanelProp
         <h2 className="text-sm font-bold text-white">Historial de versiones</h2>
         <p className="text-xs text-[#5b606c]">
           Se guarda una copia antes de cada cambio del motor, antes de guardar una
-          edición manual y antes de eliminar un archivo. Restaurar crea una versión
-          nueva — nada se pierde.
+          edición manual y antes de eliminar un archivo. Se conservan las 30 versiones
+          más recientes; restaurar crea una versión nueva.
         </p>
       </div>
       <div className="slim-scroll flex-1 overflow-y-auto p-4">

@@ -4,6 +4,11 @@ import type { ProjectMeta } from '../types';
 interface SidebarProps {
   projects: ProjectMeta[];
   activeId: string | null;
+  /** Ids de proyectos con una generación en curso: la lista es el único
+   * lugar donde se ven todos los proyectos a la vez, así que sin este
+   * dato una generación en segundo plano era invisible al cambiar de
+   * proyecto — había que abrir cada proyecto para encontrarla. */
+  workingIds: string[];
   onNew: () => void;
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -19,6 +24,7 @@ function formatDate(iso: string): string {
 export default function Sidebar({
   projects,
   activeId,
+  workingIds,
   onNew,
   onSelect,
   onRename,
@@ -106,6 +112,12 @@ export default function Sidebar({
                 </span>
                 <span className="block text-xs text-[#5b606c]">
                   {p.fileCount} archivos · editado {formatDate(p.updatedAt)}
+                  {workingIds.includes(p.id) && (
+                    <span className="ml-1 inline-flex items-center gap-1 font-bold text-[#9a82ff]">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#7c5cff]" />
+                      · Generando…
+                    </span>
+                  )}
                 </span>
               </button>
             )}
