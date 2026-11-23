@@ -45,6 +45,11 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Escapa los caracteres con significado en una expresión regular. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Deriva el tono suave (--accent-soft) de un color hexadecimal nuevo:
  * mezcla cada canal un 30% hacia el blanco. Es el mismo criterio que
@@ -428,8 +433,14 @@ export class DemoProvider implements AIProvider {
       const next = m[1].trim().slice(0, 60);
       const html = findFile(files, 'index.html');
       if (!html) return emptyResult('No hay un index.html en este proyecto.');
-      const titleMatch = html.content.match(/<title>\s*([^<—–\-|]+)/i);
-      const current = titleMatch ? titleMatch[1].trim() : '';
+      // El título de las plantillas es "<nombre> — resto": cortar solo
+      // por un separador CON ESPACIOS (" — ", " – ", " - " o " | ").
+      // Antes el corte era por cualquier guion, así que un negocio
+      // "Casa-Verde" se leía como "Casa" y el renombre dejaba
+      // "-Verde" colgando en el título, el logo y el pie.
+      const titleMatch = html.content.match(/<title[^>]*>\s*([^<]+)<\/title>/i);
+      const titleText = titleMatch ? titleMatch[1].trim() : '';
+      const current = titleText.split(/\s+(?:—|–|-|\|)\s+/)[0]?.trim() ?? '';
       if (!current) {
         return emptyResult('No pude detectar el nombre actual del negocio desde la etiqueta <title>.');
       }
@@ -441,10 +452,23 @@ export class DemoProvider implements AIProvider {
       // sustitución compara la forma escapada con la forma escapada.
       // El resumen del chat usa `next` sin escapar (React lo escapa).
       const safeNext = escapeHtml(next);
+      // Sustituir solo el nombre como PALABRA COMPLETA, no como
+      // subcadena: antes, renombrar el negocio "Mar" a "Luna"
+      // convertía "Marketing" en "Lunaketing" en el título y en el
+      // h1 (y "Marzo" en "Lunazo"). Los límites son caracteres de
+      // palabra (letras con acento, dígitos, guion bajo); un guion
+      // sí separa palabras, así que "Mar-based" sí se renombra.
+      // El reemplazo usa función para que un `$` del nombre nuevo
+      // no se interprete como patrón especial de String.replace.
+      const nameRe = new RegExp(
+        `(?<![A-Za-z0-9_À-ÿ])${escapeRegExp(current)}(?![A-Za-z0-9_À-ÿ])`,
+        'g',
+      );
       for (const f of files) {
         if (!/\.html?$/i.test(f.path)) continue;
-        if (f.content.includes(current)) {
-          ops.push({ kind: 'update_file', path: f.path, content: f.content.split(current).join(safeNext) });
+        const updated = f.content.replace(nameRe, () => safeNext);
+        if (updated !== f.content) {
+          ops.push({ kind: 'update_file', path: f.path, content: updated });
         }
       }
       if (ops.length === 0) {

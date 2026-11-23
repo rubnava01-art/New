@@ -164,6 +164,42 @@ export function injectErrorReporter(html: string): string {
 }
 
 /**
+ * Resuelve una referencia href/src a un archivo del proyecto, o null cuando
+ * no apunta a uno.
+ *
+ * Antes, la resolución era por BASENAME (`href.split('/').pop()`): un
+ * `<link href="https://cdn.example.com/styles.css">` se sustituía por el
+ * styles.css local del proyecto y un `<script src="vendor/app.js">` por el
+ * app.js local — la librería externa desaparecía de la vista previa sin
+ * avisar y el usuario veía su propio CSS/JS en lugar del CDN. Los nombres
+ * styles.css y app.js son justo los más comunes en un CDN, así que el
+ * choque no era hipotético.
+ *
+ * Reglas: solo se inlina cuando la referencia es local y coincide EXACTA
+ * con un archivo del proyecto (plano, sin carpetas — el validador las
+ * rechaza). Se aceptan `styles.css`, `./styles.css`, `/styles.css` (en un
+ * despliegue real del ZIP en raíz es el mismo archivo) y con
+ * query/fragmento (`styles.css?v=2`). Quedan intactas las URLs con esquema
+ * (https:, data:, blob:…), las protocol-relative (`//cdn…`) y las rutas con
+ * subcarpetas (`vendor/app.js`), que no existen en el proyecto.
+ */
+function normalizeLocalRef(ref: string): string | null {
+  const clean = ref.split(/[?#]/)[0];
+  if (!clean) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(clean)) return null; // esquema: https:, data:, blob:…
+  if (clean.startsWith('//')) return null; // protocol-relative
+  const name = clean.replace(/^(?:\/|\.\/)+/, '');
+  if (name.includes('/')) return null; // subcarpeta: no existe en el proyecto plano
+  return name;
+}
+
+function resolveLocalFile(ref: string, byPath: Map<string, string>): string | undefined {
+  const name = normalizeLocalRef(ref);
+  if (name === null) return undefined;
+  return byPath.get(name);
+}
+
+/**
  * Assemble project files into a single self-contained HTML document for the
  * sandboxed preview iframe.
  *
@@ -171,8 +207,8 @@ export function injectErrorReporter(html: string): string {
  * point at files inside the project are inlined, because a sandboxed
  * iframe (no allow-same-origin) cannot resolve relative URLs.
  *
- * Only files that actually exist in the project are inlined; external
- * references are left untouched.
+ * Only files that actually exist in the project are inlined, by exact
+ * path (see resolveLocalFile); external references are left untouched.
  *
  * Inlined content is escaped so it cannot terminate its own container:
  * a `</script` sequence inside inlined JS (e.g. a string like
@@ -193,10 +229,9 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
   html = html.replace(
     /<link\b[^>]*href=["']([^"']+)["'][^>]*>/gi,
     (tag, href: string) => {
-      const name = href.split('/').pop() ?? href;
-      const css = byPath.get(name);
+      const css = resolveLocalFile(href, byPath);
       if (css === undefined || !/rel=["']?stylesheet/i.test(tag)) return tag;
-      return `<style>\n/* inlined from ${escapeComment(name)} */\n${escapeInlineCss(css)}\n</style>`;
+      return `<style>\n/* inlined from ${escapeComment(normalizeLocalRef(href) ?? href)} */\n${escapeInlineCss(css)}\n</style>`;
     },
   );
 
@@ -204,10 +239,9 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
   html = html.replace(
     /<script\b[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
     (_tag, src: string) => {
-      const name = src.split('/').pop() ?? src;
-      const js = byPath.get(name);
+      const js = resolveLocalFile(src, byPath);
       if (js === undefined) return _tag;
-      return `<script>\n/* inlined from ${escapeComment(name)} */\n${escapeInlineJs(js)}\n</script>`;
+      return `<script>\n/* inlined from ${escapeComment(normalizeLocalRef(src) ?? src)} */\n${escapeInlineJs(js)}\n</script>`;
     },
   );
 
