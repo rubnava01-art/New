@@ -215,6 +215,16 @@ function resolveLocalFile(ref: string, byPath: Map<string, string>): string | un
  * `"<script>"` written by the user) would otherwise end the script block
  * early and corrupt or inject markup into the preview document; the same
  * holds for `</style` inside inlined CSS.
+ *
+ * Los atributos que cambian el comportamiento de la etiqueta se
+ * conservan al inlinear: un `<script type="module" src="app.js">` se
+ * convierte en `<script type="module">` (sin el type, el código con
+ * `import`/`export` rompería en la vista previa con un SyntaxError que
+ * no existe en el ZIP exportado) y un `<link media="print">` en
+ * `<style media="print">` (sin el media, el CSS de impresión se
+ * aplicaría a pantalla en la vista previa). `defer` y `async` no se
+ * conservan: la especificación los ignora en scripts sin `src`.
+ * `nomodule` y `disabled` también se conservan, por el mismo criterio.
  */
 export function buildPreviewHtml(files: ProjectFile[]): string {
   const byPath = new Map(files.map((f) => [f.path, f.content]));
@@ -231,7 +241,11 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
     (tag, href: string) => {
       const css = resolveLocalFile(href, byPath);
       if (css === undefined || !/rel=["']?stylesheet/i.test(tag)) return tag;
-      return `<style>\n/* inlined from ${escapeComment(normalizeLocalRef(href) ?? href)} */\n${escapeInlineCss(css)}\n</style>`;
+      const media = attrValue(tag, 'media');
+      const attrs =
+        (media !== null ? ` media="${escapeAttr(media)}"` : '') +
+        (hasBoolAttr(tag, 'disabled') ? ' disabled' : '');
+      return `<style${attrs}>\n/* inlined from ${escapeComment(normalizeLocalRef(href) ?? href)} */\n${escapeInlineCss(css)}\n</style>`;
     },
   );
 
@@ -241,7 +255,11 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
     (_tag, src: string) => {
       const js = resolveLocalFile(src, byPath);
       if (js === undefined) return _tag;
-      return `<script>\n/* inlined from ${escapeComment(normalizeLocalRef(src) ?? src)} */\n${escapeInlineJs(js)}\n</script>`;
+      const type = attrValue(_tag, 'type');
+      const attrs =
+        (type !== null ? ` type="${escapeAttr(type)}"` : '') +
+        (hasBoolAttr(_tag, 'nomodule') ? ' nomodule' : '');
+      return `<script${attrs}>\n/* inlined from ${escapeComment(normalizeLocalRef(src) ?? src)} */\n${escapeInlineJs(js)}\n</script>`;
     },
   );
 
@@ -255,6 +273,32 @@ export function buildPreviewHtml(files: ProjectFile[]): string {
 
 function escapeComment(s: string): string {
   return s.replace(/\*\//g, '* /');
+}
+
+/** Escapa un valor para reemitirlo entre comillas dobles en un atributo. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Valor de un atributo dentro de una etiqueta HTML, con o sin comillas
+ * (`type="module"`, `type='module'` o `type=module`); null si no está.
+ */
+function attrValue(tag: string, name: string): string | null {
+  const m = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\\`]+))`, 'i').exec(tag);
+  if (!m) return null;
+  return m[1] ?? m[2] ?? m[3] ?? null;
+}
+
+/**
+ * Si un atributo booleano (sin valor) está presente en la etiqueta.
+ * Los valores entrecomillados se borran antes de buscar, para no
+ * confundir un `disabled` dentro de un href con el atributo en sí
+ * (p. ej. href="disabled.css" no es un <link disabled>).
+ */
+function hasBoolAttr(tag: string, name: string): boolean {
+  const stripped = tag.replace(/"[^"]*"|'[^']*'/g, '');
+  return new RegExp(`\\b${name}\\b`, 'i').test(stripped);
 }
 
 /**
